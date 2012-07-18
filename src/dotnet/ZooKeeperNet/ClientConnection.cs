@@ -261,6 +261,10 @@
                 {
                     // ignore, close the send/event threads
                 }
+                catch (Exception ex)
+                {
+                    LOG.WarnFormat("Error disposing {0} : {1}", this.GetType().FullName, ex.Message);
+                }
                 finally
                 {
                     producer.Dispose();
@@ -294,8 +298,8 @@
                 .Append(" xid:").Append(producer.xid)
                 .Append(" sent:").Append(producer.sentCount)
                 .Append(" recv:").Append(producer.recvCount)
-                .Append(" queuedpkts:").Append(producer.outgoingQueue.Count)
-                .Append(" pendingresp:").Append(producer.pendingQueue.Count)
+                .Append(" queuedpkts:").Append(producer.OutgoingQueueCount)
+                .Append(" pendingresp:").Append(producer.PendingQueueCount)
                 .Append(" queuedevents:").Append(consumer.waitingEvents.Count);
 
             return sb.ToString();
