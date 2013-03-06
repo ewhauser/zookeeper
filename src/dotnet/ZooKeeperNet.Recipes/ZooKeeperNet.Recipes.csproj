@@ -71,6 +71,7 @@
       <Link>SolutionVersion.cs</Link>
     </Compile>
     <Compile Include="DistributedQueue.cs" />
+    <Compile Include="LeaderElection.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="ProtocolSupport.cs" />
     <Compile Include="SortedSet.cs" />
