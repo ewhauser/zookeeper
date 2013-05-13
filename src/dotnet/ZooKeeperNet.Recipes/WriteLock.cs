@@ -11,7 +11,6 @@
     {
         private readonly string dir;
         private readonly byte[] data = new[] { (byte)12, (byte)34 };
-        private readonly Func<bool> lockOperation;
 
         private string id;
         private ZNodeName idName;
@@ -36,16 +35,13 @@
 
         public event Action LockReleased;
 
-        public WriteLock(ZooKeeper zookeeper, string dir) : base(zookeeper)
-        {
-            this.dir = dir;
-        }
+        public WriteLock(ZooKeeper zookeeper, string dir) : this(zookeeper, dir, null)
+        { }
 
         public WriteLock(ZooKeeper zookeeper, string dir, List<ACL> acl) : base(zookeeper)
         {
             this.dir = dir;
             if (acl != null) Acl = acl;
-            lockOperation = LockOperation;
         }
 
         public string Id
@@ -186,7 +182,7 @@
             }
             EnsurePathExists(dir);
 
-            return RetryOperation<bool>(lockOperation);
+            return RetryOperation<bool>(LockOperation);
         }
 
         public IDisposable UseLock()
