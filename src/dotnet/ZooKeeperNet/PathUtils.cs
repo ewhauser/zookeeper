@@ -32,6 +32,11 @@ namespace ZooKeeperNet
         public const char PathSeparatorChar = '/';
         private const char PathDotChar = '.';
 
+        /// <summary>
+        /// Path Separator char as an array for use in string.Split(delims, StringSplitOptions.*)
+        /// (and anywhere else this would be handy).
+        /// </summary>
+        public static readonly char[] PathSeparatorCharAsArray = new char[] {PathSeparatorChar};
 
         /** validate the provided znode path string
          * @param path znode path string

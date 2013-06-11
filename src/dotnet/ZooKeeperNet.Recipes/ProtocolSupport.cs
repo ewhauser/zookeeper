@@ -2,6 +2,7 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.Text;
     using System.Threading;
     using log4net;
     using Org.Apache.Zookeeper.Data;
@@ -86,16 +87,32 @@
         {
             try
             {
-                RetryOperation(() =>
+                var components = path.Split(PathUtils.PathSeparatorCharAsArray, StringSplitOptions.RemoveEmptyEntries);
+                var pathBuilder = new StringBuilder(path.Length);
+
+                for (var i=0; i < components.Length; ++i)
                 {
-                    Stat stat = Zookeeper.Exists(path, false);
-                    if (stat != null)
-                    {
-                        return true;
-                    }
-                    Zookeeper.Create(path, data, acl, flags);
-                    return true;
-                });
+                    // Create a loop-scoped variable to avoid closure troubles
+                    // inside RetryOperation.
+                    var isLastComponent = (i == components.Length - 1);
+                    
+                    var component = components[i];
+
+                    pathBuilder.Append(PathUtils.PathSeparator);
+                    pathBuilder.Append(component);
+                    var currentPartialPath = pathBuilder.ToString();
+
+                    RetryOperation(() =>
+                        {
+                            var stat = Zookeeper.Exists(currentPartialPath, false);
+                            if (stat != null)
+                            {
+                                return true;
+                            }
+                            Zookeeper.Create(currentPartialPath, isLastComponent ? data : null, acl, flags);
+                            return true;
+                        });
+                }
             }
             catch (KeeperException e)
             {
