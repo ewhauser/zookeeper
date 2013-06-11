@@ -35,10 +35,10 @@
 
         public event Action LockReleased;
 
-        public WriteLock(ZooKeeper zookeeper, string dir) : this(zookeeper, dir, null)
+        public WriteLock(IZooKeeper zookeeper, string dir) : this(zookeeper, dir, null)
         { }
 
-        public WriteLock(ZooKeeper zookeeper, string dir, List<ACL> acl) : base(zookeeper)
+        public WriteLock(IZooKeeper zookeeper, string dir, List<ACL> acl) : base(zookeeper)
         {
             this.dir = dir;
             if (acl != null) Acl = acl;
@@ -146,7 +146,7 @@
             return false;
         }
 
-        private void FindPrefixInChildren(String prefix, ZooKeeper zookeeper, String dir)
+        private void FindPrefixInChildren(String prefix, IZooKeeper zookeeper, String dir)
         {
             var names = Zookeeper.GetChildren(dir, false);
             foreach (string name in names)

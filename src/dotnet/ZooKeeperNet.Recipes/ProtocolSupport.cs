@@ -12,7 +12,7 @@
 
         private int closed;
 
-        public ProtocolSupport(ZooKeeper zookeeper)
+        public ProtocolSupport(IZooKeeper zookeeper)
         {
             RetryDelay = new TimeSpan(0, 0, 0, 0, 500);
             Acl = Ids.OPEN_ACL_UNSAFE;
@@ -20,7 +20,7 @@
             Zookeeper = zookeeper;
         }
 
-        public ZooKeeper Zookeeper { get; set; }
+        public IZooKeeper Zookeeper { get; set; }
 
         public TimeSpan RetryDelay { get; set; }
 
