@@ -225,7 +225,7 @@
         }
 
         private Guid id = Guid.NewGuid();
-        private States state;
+        private volatile States state = States.NOT_CONNECTED;
         private IClientConnection cnxn;
 
         /// <summary>

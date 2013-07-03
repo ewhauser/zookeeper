@@ -75,6 +75,35 @@
             }
         }
 
+       
+        [Test]
+        public void testClientWithMultipleHosts()
+        {
+            // With only a single ZooKeeper node running on port 2181, a connection should be established.
+            performCanConnect("127.0.0.1:2181,127.0.0.1:2182");
+            performCanConnect("127.0.0.1:2184,127.0.0.1:2183,127.0.0.1:2182,127.0.0.1:2181");
+            performCanConnect("127.0.0.1:2182,127.0.0.1:2181,127.0.0.1:2183");
+        }
+
+        private void performCanConnect(string hosts)
+        {
+            using (var zk = CreateClientWithAddress(hosts))
+            {
+                var timeout = TimeSpan.FromSeconds(30);
+                var connectionStartTime = DateTime.UtcNow;
+
+                while (!zk.State.Equals(ZooKeeper.States.CONNECTED))
+                {
+                    Thread.Sleep(1);
+
+                    if (DateTime.UtcNow.Subtract(connectionStartTime) > timeout)
+                        Assert.Fail("Could not connect to ZooKeeper within {0}s. hosts={1}", timeout.TotalSeconds, hosts);
+                }
+
+                Assert.Pass("Connected.");
+            }
+        }
+
         [Test]
         public void testClientWithoutWatcherObj()
         {

@@ -78,7 +78,6 @@ namespace ZooKeeperNet
 
         public void Start()
         {
-            StartConnect();
             requestThread.Start();
         }
 
