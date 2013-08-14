@@ -158,11 +158,22 @@
                     }
                     host = h.Substring(0, pidx);
                 }
-                var ip = IPAddress.Parse(host);
-                serverAddrs.Add(new IPEndPoint(ip, port));
+
+                // Handle dns-round robin or hostnames instead of IP addresses
+                var hostIps = ResolveHostToIpAddresses(host);
+                foreach (var ip in hostIps)
+                {
+                    serverAddrs.Add(new IPEndPoint(ip, port));
+                }
             }
 
             serverAddrs.OrderBy(s => Guid.NewGuid()); //Random order the servers
+        }
+
+        private IEnumerable<IPAddress> ResolveHostToIpAddresses(string host)
+        {
+            var hostEntry = Dns.GetHostEntry(host);
+            return hostEntry.AddressList;
         }
 
         private void SetTimeouts(TimeSpan sessionTimeout)
