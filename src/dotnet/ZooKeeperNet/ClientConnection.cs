@@ -15,7 +15,10 @@
  *  limitations under the License.
  *
  */
-﻿namespace ZooKeeperNet
+
+using System.Net.Sockets;
+
+namespace ZooKeeperNet
 {
     using System;
     using System.Collections.Generic;
@@ -144,6 +147,7 @@
         private void GetHosts(string hostLst)
         {
             string[] hostsList = hostLst.Split(',');
+            List<IPEndPoint> nonRandomizedServerAddrs = new List<IPEndPoint>();
             foreach (string h in hostsList)
             {
                 string host = h;
@@ -163,17 +167,20 @@
                 var hostIps = ResolveHostToIpAddresses(host);
                 foreach (var ip in hostIps)
                 {
-                    serverAddrs.Add(new IPEndPoint(ip, port));
+                    nonRandomizedServerAddrs.Add(new IPEndPoint(ip, port));
                 }
             }
+            IEnumerable<IPEndPoint> randomizedServerAddrs 
+                = nonRandomizedServerAddrs.OrderBy(s => Guid.NewGuid()); //Random order the servers
 
-            serverAddrs.OrderBy(s => Guid.NewGuid()); //Random order the servers
+            serverAddrs.AddRange(randomizedServerAddrs);
         }
 
         private IEnumerable<IPAddress> ResolveHostToIpAddresses(string host)
         {
             var hostEntry = Dns.GetHostEntry(host);
-            return hostEntry.AddressList;
+            return hostEntry.AddressList.Where(x => 
+                !x.IsIPv6LinkLocal && !x.IsIPv6SiteLocal && !x.IsIPv6Multicast && !x.IsIPv6Teredo);
         }
 
         private void SetTimeouts(TimeSpan sessionTimeout)
@@ -261,11 +268,19 @@
                 {
                     SubmitRequest(new RequestHeader { Type = (int)OpCode.CloseSession }, null, null, null);
                     SpinWait spin = new SpinWait();
+                    DateTime start = DateTime.Now;
                     while (!producer.IsConnectionClosedByServer)
                     {
                         spin.SpinOnce();
                         if (spin.Count > maxSpin)
+                        {
+                            if (DateTime.Now.Subtract(start) > SessionTimeout)
+                            {
+                                throw new TimeoutException(
+                                    string.Format("Timed out in Dispose() while closing session: 0x{0:X}", SessionId));
+                            }
                             spin.Reset();
+                        }
                     }
                 }
                 catch (ThreadInterruptedException)

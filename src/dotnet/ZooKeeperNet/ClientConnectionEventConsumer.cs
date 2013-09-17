@@ -56,7 +56,10 @@ using System.Collections.Generic;
             {
                 try
                 {
-                    watcher.Process(watchedEvent);
+                    if (null != watcher)
+                    {
+                        watcher.Process(watchedEvent);
+                    }
                 }
                 catch (Exception t)
                 {

@@ -71,6 +71,10 @@
       <Link>SolutionVersion.cs</Link>
     </Compile>
     <Compile Include="DistributedQueue.cs" />
+    <Compile Include="Locks\LockInternalsDriver.cs" />
+    <Compile Include="Locks\LockInternals.cs" />
+    <Compile Include="Locks\InterProcessLock.cs" />
+    <Compile Include="Locks\InterProcessMutex.cs" />
     <Compile Include="LeaderElection.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="ProtocolSupport.cs" />

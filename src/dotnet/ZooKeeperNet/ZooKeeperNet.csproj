@@ -76,6 +76,8 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="ClientWatchManager.cs" />
+    <Compile Include="RetryPolicy.cs" />
+    <Compile Include="ZKPaths.cs" />
     <Compile Include="CreateMode.cs" />
     <Compile Include="DataTree.cs" />
     <Compile Include="ClientConnectionEventConsumer.cs" />
