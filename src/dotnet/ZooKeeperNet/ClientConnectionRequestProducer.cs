@@ -232,10 +232,6 @@ namespace ZooKeeperNet
                     if (LOG.IsDebugEnabled)
                         LOG.Debug("Ignoring exception during channel close", e);
                 }
-                finally
-                {
-                    tcpClient = null;
-                }
             }
 
             lock (outgoingQueue)
@@ -255,6 +251,7 @@ namespace ZooKeeperNet
         private void Cleanup()
         {
             Cleanup(client);
+            client = null;
         }
 
         private void StartConnect()
@@ -312,6 +309,7 @@ namespace ZooKeeperNet
                     if (!ar.AsyncWaitHandle.WaitOne(conn.ConnectionTimeout, false))
                     {
                         Cleanup(tempClient);
+                        tempClient = null;
                         throw new TimeoutException();
                     }
 
@@ -326,7 +324,7 @@ namespace ZooKeeperNet
                     if (ex is SocketException || ex is TimeoutException)
                     {
                         Cleanup(tempClient);
-
+                        tempClient = null;
                         zkEndpoints.CurrentEndPoint.SetAsFailure();
 
                         LOG.WarnFormat(string.Format("Failed to connect to {0}:{1}.",
