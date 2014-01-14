@@ -159,17 +159,18 @@ namespace ZooKeeperNet
                         {
                             packet = outgoingQueue.First();
                             outgoingQueue.RemoveFirst();
-                            // We have something to send so it's the same
-                            // as if we do the send now.                        
-                            DoSend(packet);
-                            lastSend = DateTime.Now;
-                            packet = null;
-                        }
-                        else
-                        {
-                            packetAre.WaitOne(TimeSpan.FromMilliseconds(1));
                         }
                     }
+                    if (packet != null)
+                    {
+                        // We have something to send so it's the same
+                        // as if we do the send now.                        
+                        DoSend(packet);
+                        lastSend = DateTime.Now;
+                        packet = null;
+                    }
+                    else
+                        packetAre.WaitOne(TimeSpan.FromMilliseconds(1));
                 }
                 catch (Exception e)
                 {
