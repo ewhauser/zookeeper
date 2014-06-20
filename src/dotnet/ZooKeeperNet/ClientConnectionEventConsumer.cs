@@ -72,7 +72,6 @@ using System.Collections.Generic;
         {
             try
             {
-                SpinWait spin = new SpinWait();
                 while(Interlocked.CompareExchange(ref isDisposed, 1, 1) == 0)
                 {
                     try
@@ -82,9 +81,7 @@ using System.Collections.Generic;
                             ProcessWatcher(pair.Watchers, pair.WatchedEvent);
                         else
                         {
-                            spin.SpinOnce();
-                            if (spin.Count > ClientConnection.MaximumSpin)
-                                spin.Reset();
+                            Thread.Sleep(200);
                         }
                         
                     }
