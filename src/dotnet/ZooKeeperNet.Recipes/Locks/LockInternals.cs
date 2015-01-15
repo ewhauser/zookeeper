@@ -149,7 +149,7 @@ namespace ZooKeeperNet.Recipes.Locks
 
                 try
                 {
-                    ZKPaths.Mkdirs(Client, _path, false);
+                    ZKPaths.Mkdirs(Client, _path, false, CreateMode.Persistent);
                     ourPath = Client.Create(_path, lockNodeBytes, Driver.Acl ?? Ids.OPEN_ACL_UNSAFE, CreateMode.EphemeralSequential);
                     hasTheLock = InternalLockLoop(startTime, timeout, ourPath);
                 }

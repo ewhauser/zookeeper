@@ -76,12 +76,6 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="ClientWatchManager.cs" />
-    <Compile Include="RetryPolicy.cs" />
-    <Compile Include="ZKPaths.cs" />
-    <Compile Include="CreateMode.cs" />
-    <Compile Include="DataTree.cs" />
-    <Compile Include="ClientConnectionEventConsumer.cs" />
-    <Compile Include="EventType.cs" />
     <Compile Include="Generated\ACL.cs" />
     <Compile Include="Generated\AuthPacket.cs" />
     <Compile Include="Generated\CheckVersionRequest.cs" />
@@ -137,6 +131,12 @@
     <Compile Include="Generated\Txn.cs" />
     <Compile Include="Generated\TxnHeader.cs" />
     <Compile Include="Generated\WatcherEvent.cs" />
+    <Compile Include="RetryPolicy.cs" />
+    <Compile Include="ZKPaths.cs" />
+    <Compile Include="CreateMode.cs" />
+    <Compile Include="DataTree.cs" />
+    <Compile Include="ClientConnectionEventConsumer.cs" />
+    <Compile Include="EventType.cs" />
     <Compile Include="IClientConnection.cs" />
     <Compile Include="Ids.cs" />
     <Compile Include="IO\BigEndianBitConverter.cs" />
