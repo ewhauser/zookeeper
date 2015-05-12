@@ -19,6 +19,7 @@
 using System.Linq;
 ﻿using System.Collections.Generic;
 ﻿using System.Text;
+﻿using System.Threading.Tasks;
 
 namespace ZooKeeperNet
 {
@@ -109,7 +110,11 @@ namespace ZooKeeperNet
          */
         public static void Mkdirs(ZooKeeper zookeeper, String path)
         {
-            Mkdirs(zookeeper, path, true);
+            MkdirsAsync(zookeeper, path).GetAwaiter().GetResult();
+        }
+        public static Task MkdirsAsync(ZooKeeper zookeeper, String path)
+        {
+            return MkdirsAsync(zookeeper, path, true);
         }
 
         /**
@@ -123,7 +128,13 @@ namespace ZooKeeperNet
          * @throws org.apache.zookeeper.KeeperException
          *                              Zookeeper errors
          */
+
         public static void Mkdirs(IZooKeeper zookeeper, String path, bool makeLastNode)
+        {
+            MkdirsAsync(zookeeper, path, true).GetAwaiter().GetResult();
+        }
+
+        public static async Task MkdirsAsync(IZooKeeper zookeeper, String path, bool makeLastNode)
         {
             PathUtils.ValidatePath(path);
 
@@ -145,11 +156,11 @@ namespace ZooKeeperNet
                 }
 
                 var subPath = path.Substring(0, pos);
-                if (zookeeper.Exists(subPath, false) == null)
+                if (await zookeeper.ExistsAsync(subPath, false).ConfigureAwait(false) == null)
                 {
                     try
                     {
-                        zookeeper.Create(subPath, new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.Persistent);
+                        await zookeeper.CreateAsync(subPath, new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.Persistent).ConfigureAwait(false);
                     }
                     catch (KeeperException.NodeExistsException e)
                     {
@@ -171,9 +182,15 @@ namespace ZooKeeperNet
          * @throws org.apache.zookeeper.KeeperException
          *                              zookeeper errors
          */
+
         public static List<String> GetSortedChildren(IZooKeeper zookeeper, String path)
         {
-            var children = zookeeper.GetChildren(path, false);
+            return GetSortedChildrenAsync(zookeeper, path).GetAwaiter().GetResult();
+        }
+
+        public static async Task<List<String>> GetSortedChildrenAsync(IZooKeeper zookeeper, String path)
+        {
+            var children = await zookeeper.GetChildrenAsync(path, false).ConfigureAwait(false);
             var sortedList = new List<string>(children.OrderBy(x => x));
             return sortedList;
         }

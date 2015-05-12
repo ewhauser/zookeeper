@@ -15,6 +15,9 @@
  *  limitations under the License.
  *
  */
+
+using System.Threading.Tasks;
+
 namespace ZooKeeperNet
 {
     using System;
@@ -120,6 +123,7 @@ namespace ZooKeeperNet
         /// <param name="createMode">specifying whether the node to be created is ephemeral and/or sequential.</param>
         /// <returns></returns>
         string Create(string path, byte[] data, IEnumerable<ACL> acl, CreateMode createMode);
+        Task<string> CreateAsync(string path, byte[] data, IEnumerable<ACL> acl, CreateMode createMode);
 
         /// <summary>
         /// Delete the node with the given path. The call will succeed if such a node
@@ -142,6 +146,7 @@ namespace ZooKeeperNet
         /// <param name="path">The path.</param>
         /// <param name="version">The version.</param>
         void Delete(string path, int version);
+        Task DeleteAsync(string path, int version);
 
         /// <summary>
         /// Return the stat of the node of the given path. Return null if no such a
@@ -156,6 +161,7 @@ namespace ZooKeeperNet
         /// <param name="watcher">The watcher.</param>
         /// <returns>the stat of the node of the given path; return null if no such a node exists.</returns>
         Stat Exists(string path, IWatcher watcher);
+        Task<Stat> ExistsAsync(string path, IWatcher watcher);
 
         /// <summary>
         /// Return the stat of the node of the given path. Return null if no such a
@@ -175,6 +181,7 @@ namespace ZooKeeperNet
         /// @throws InterruptedException If the server transaction is interrupted.
         /// </summary>
         Stat Exists(string path, bool watch);
+        Task<Stat> ExistsAsync(string path, bool watch);
 
         /// <summary>
         /// Return the data and the stat of the node of the given path.
@@ -195,6 +202,7 @@ namespace ZooKeeperNet
         /// @throws IllegalArgumentException if an invalid path is specified
         /// </summary>
         byte[] GetData(string path, IWatcher watcher, Stat stat);
+        Task<byte[]> GetDataAsync(string path, IWatcher watcher, Stat stat);
 
         /// <summary>
         /// Return the data and the stat of the node of the given path.
@@ -214,6 +222,7 @@ namespace ZooKeeperNet
         /// @throws InterruptedException If the server transaction is interrupted.
         /// </summary>
         byte[] GetData(string path, bool watch, Stat stat);
+        Task<byte[]> GetDataAsync(string path, bool watch, Stat stat);
 
         /// <summary>
         /// Set the data for the node of the given path if such a node exists and the
@@ -243,6 +252,7 @@ namespace ZooKeeperNet
         /// @throws IllegalArgumentException if an invalid path is specified
         /// </summary>
         Stat SetData(string path, byte[] data, int version);
+        Task<Stat> SetDataAsync(string path, byte[] data, int version);
 
         /// <summary>
         /// Return the ACL and stat of the node of the given path.
@@ -259,6 +269,7 @@ namespace ZooKeeperNet
         /// @throws IllegalArgumentException if an invalid path is specified
         /// </summary>
         IEnumerable<ACL> GetACL(string path, Stat stat);
+        Task<IEnumerable<ACL>> GetACLAsync(string path, Stat stat);
 
         /// <summary>
         /// Set the ACL for the node of the given path if such a node exists and the
@@ -280,6 +291,7 @@ namespace ZooKeeperNet
         /// @throws IllegalArgumentException if an invalid path is specified
         /// </summary>
         Stat SetACL(string path, IEnumerable<ACL> acl, int version);
+        Task<Stat> SetACLAsync(string path, IEnumerable<ACL> acl, int version);
 
         /// <summary>
         /// Return the list of the children of the node of the given path.
@@ -302,8 +314,10 @@ namespace ZooKeeperNet
         /// @throws IllegalArgumentException if an invalid path is specified
         /// </summary>
         IEnumerable<string> GetChildren(string path, IWatcher watcher);
+        Task<IEnumerable<string>> GetChildrenAsync(string path, IWatcher watcher);
 
         IEnumerable<string> GetChildren(string path, bool watch);
+        Task<IEnumerable<string>> GetChildrenAsync(string path, bool watch);
 
         /// <summary>
         /// For the given znode path return the stat and children list.
@@ -329,6 +343,7 @@ namespace ZooKeeperNet
         /// @throws IllegalArgumentException if an invalid path is specified
         /// </summary>
         IEnumerable<string> GetChildren(string path, IWatcher watcher, Stat stat);
+        Task<IEnumerable<string>> GetChildrenAsync(string path, IWatcher watcher, Stat stat);
 
         /// <summary>
         /// For the given znode path return the stat and children list.
@@ -354,6 +369,7 @@ namespace ZooKeeperNet
         ///  error code.
         /// </summary>
         IEnumerable<string> GetChildren(string path, bool watch, Stat stat);
+        Task<IEnumerable<string>> GetChildrenAsync(string path, bool watch, Stat stat);
 
         /// <summary>
         /// Close this client object. Once the client is closed, its session becomes

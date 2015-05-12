@@ -15,6 +15,9 @@
  *  limitations under the License.
  *
  */
+
+using System.Threading.Tasks;
+
 namespace ZooKeeperNet
 {
     using System;
@@ -62,7 +65,7 @@ namespace ZooKeeperNet
         /// <param name="response">The response.</param>
         /// <param name="watchRegistration">The watch registration.</param>
         /// <returns></returns>
-        ReplyHeader SubmitRequest(RequestHeader h, IRecord request, IRecord response, ZooKeeper.WatchRegistration watchRegistration);
+        Task<ReplyHeader> SubmitRequest(RequestHeader h, IRecord request, IRecord response, ZooKeeper.WatchRegistration watchRegistration);
 
         /// <summary>
         /// Queues the packet.
