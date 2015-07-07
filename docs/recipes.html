@@ -454,7 +454,7 @@ document.write("Last Published: " + document.lastModified);
 <li>
                     
 <p>if <em>p</em> is the lowest process
-                      node in L, wait on highest process node in P</p>
+                      node in L, wait on highest process node in L</p>
                   
 </li>
 
@@ -905,7 +905,7 @@ document.write("Last Published: " + document.lastModified);
       
 <li>
         
-<p>Watch for changes on "ELECTION/n_j", where j is the smallest
+<p>Watch for changes on "ELECTION/n_j", where j is the largest
         sequence number such that j &lt; i and n_j is a znode in C;</p>
       
 </li>
@@ -932,7 +932,7 @@ document.write("Last Published: " + document.lastModified);
 <li>
         
 <p>Otherwise, watch for changes on "ELECTION/n_j", where j is the
-        smallest sequence number such that j &lt; i and n_j is a znode in C;
+        largest sequence number such that j &lt; i and n_j is a znode in C;
         </p>
       
 </li>
@@ -940,7 +940,7 @@ document.write("Last Published: " + document.lastModified);
 </ol>
 <p>Note that the znode having no preceding znode on the list of
     children does not imply that the creator of this znode is aware that it is
-    the current leader. Applications may consider creating a separate to znode
+    the current leader. Applications may consider creating a separate znode
     to acknowledge that the leader has executed the leader procedure. </p>
 </div>
 
@@ -964,7 +964,7 @@ document.write("Last Published: " + document.lastModified);
 </div>
 <div class="copyright">
         Copyright &copy;
-         2008 <a href="http://www.apache.org/licenses/">The Apache Software Foundation.</a>
+         2008-2013 <a href="http://www.apache.org/licenses/">The Apache Software Foundation.</a>
 </div>
 <!--+
     |end bottomstrip

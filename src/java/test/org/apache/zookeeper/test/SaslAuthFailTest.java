@@ -59,58 +59,10 @@ public class SaslAuthFailTest extends ClientBase {
             // could not create tmp directory to hold JAAS conf file.
         }
     }
-
-    private AtomicInteger authFailed = new AtomicInteger(0);
-    
-    @Override
-    protected TestableZooKeeper createClient(String hp)
-    throws IOException, InterruptedException
-    {
-        File tmpDir = ClientBase.createTmpDir();
-        File saslConfFile = new File(tmpDir, "jaas_bad_password.conf");
-        FileWriter fwriter = new FileWriter(saslConfFile);
-
-        fwriter.write("" +
-                "Server {\n" +
-                "          org.apache.zookeeper.server.auth.DigestLoginModule required\n" +
-                "          user_super=\"test\";\n" +
-                "};\n" +
-                "Client {\n" +
-                "       org.apache.zookeeper.server.auth.DigestLoginModule required\n" +
-                "       username=\"super\"\n" +
-                "       password=\"test1\";\n" + // NOTE: wrong password to cause authentication failure : 'test' != 'test1'.
-                "};" + "\n");
-        fwriter.close();
-        System.setProperty("java.security.auth.login.config",saslConfFile.getAbsolutePath());
-        MyWatcher watcher = new MyWatcher();
-        return createClient(watcher, hp);
-    }
-
-    private class MyWatcher extends CountdownWatcher {
-        @Override
-        public synchronized void process(WatchedEvent event) {
-            if (event.getState() == KeeperState.AuthFailed) {
-                authFailed.incrementAndGet();
-            }
-            else {
-                super.process(event);
-            }
-        }
-    }
-
-    @Test
-    public void testBadSaslAuthNotifiesWatch() throws Exception {
-        ZooKeeper zk = createClient();
-        Thread.sleep(1000);
-        Assert.assertEquals(authFailed.get(),1);
-        zk.close();
-    }
-
     
     @Test
     public void testAuthFail() throws Exception {
         ZooKeeper zk = createClient();
-        Thread.sleep(1000);
         try {
             zk.create("/path1", null, Ids.CREATOR_ALL_ACL, CreateMode.PERSISTENT);
             Assert.fail("Should have gotten exception.");

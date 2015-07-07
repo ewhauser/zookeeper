@@ -70,22 +70,6 @@ public class SaslAuthTest extends ClientBase {
     protected TestableZooKeeper createClient(String hp)
     throws IOException, InterruptedException
     {
-        File tmpDir = ClientBase.createTmpDir();
-        File saslConfFile = new File(tmpDir, "jaas.conf");
-        FileWriter fwriter = new FileWriter(saslConfFile);
-
-        fwriter.write("" +
-                "Server {\n" +
-                "          org.apache.zookeeper.server.auth.DigestLoginModule required\n" +
-                "          user_super=\"test\";\n" +
-                "};\n" +
-                "Client {\n" +
-                "       org.apache.zookeeper.server.auth.DigestLoginModule required\n" +
-                "       username=\"super\"\n" +
-                "       password=\"test\";\n" +
-                "};" + "\n");
-        fwriter.close();
-        System.setProperty("java.security.auth.login.config",saslConfFile.getAbsolutePath());
         MyWatcher watcher = new MyWatcher();
         return createClient(watcher, hp);
     }
@@ -105,7 +89,6 @@ public class SaslAuthTest extends ClientBase {
     @Test
     public void testAuth() throws Exception {
         ZooKeeper zk = createClient();
-        Thread.sleep(1000);
         try {
             zk.create("/path1", null, Ids.CREATOR_ALL_ACL, CreateMode.PERSISTENT);
             Thread.sleep(1000);
@@ -117,7 +100,6 @@ public class SaslAuthTest extends ClientBase {
     @Test
     public void testValidSaslIds() throws Exception {
         ZooKeeper zk = createClient();
-        Thread.sleep(1000);
 
         List<String> validIds = new ArrayList<String>();
         validIds.add("user");
@@ -138,7 +120,6 @@ public class SaslAuthTest extends ClientBase {
     @Test
     public void testInvalidSaslIds() throws Exception {
         ZooKeeper zk = createClient();
-        Thread.sleep(1000);
 
         List<String> invalidIds = new ArrayList<String>();
         invalidIds.add("user@KERB.REALM/server.com");

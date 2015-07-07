@@ -39,6 +39,8 @@ import java.util.Date;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.zookeeper.server.ZooKeeperServer;
+
 /**
  * This class implements a connection manager for leader election using TCP. It
  * maintains one connection for every pair of servers. The tricky part is to
@@ -70,7 +72,7 @@ public class QuorumCnxManager {
     // stale notifications to peers
     static final int SEND_CAPACITY = 1;
 
-    static final int PACKETMAXSIZE = 1024 * 1024; 
+    static final int PACKETMAXSIZE = 1024 * 512; 
     /*
      * Maximum number of attempts to connect to a peer
      */
@@ -114,7 +116,7 @@ public class QuorumCnxManager {
      * Shutdown flag
      */
 
-    boolean shutdown = false;
+    volatile boolean shutdown = false;
 
     /*
      * Listener thread
@@ -127,6 +129,7 @@ public class QuorumCnxManager {
     private AtomicInteger threadCnt = new AtomicInteger(0);
 
     static public class Message {
+        
         Message(ByteBuffer buffer, long sid) {
             this.buffer = buffer;
             this.sid = sid;
@@ -232,6 +235,17 @@ public class QuorumCnxManager {
             // Read server id
             DataInputStream din = new DataInputStream(sock.getInputStream());
             sid = din.readLong();
+            if (sid < 0) { // this is not a server id but a protocol version (see ZOOKEEPER-1633)
+                sid = din.readLong();
+                // next comes the #bytes in the remainder of the message
+                int num_remaining_bytes = din.readInt();
+                byte[] b = new byte[num_remaining_bytes];
+                // remove the remainder of the message from din
+                int num_read = din.read(b);
+                if (num_read != num_remaining_bytes) {
+                    LOG.error("Read only " + num_read + " bytes out of " + num_remaining_bytes + " sent by server " + sid);
+                }
+            }
             if (sid == QuorumPeer.OBSERVER_ID) {
                 /*
                  * Choose identifier at random. We need a value to identify
@@ -476,13 +490,17 @@ public class QuorumCnxManager {
         @Override
         public void run() {
             int numRetries = 0;
+            InetSocketAddress addr;
             while((!shutdown) && (numRetries < 3)){
                 try {
                     ss = new ServerSocket();
                     ss.setReuseAddress(true);
-                    int port = self.quorumPeers.get(self.getId()).electionAddr
-                            .getPort();
-                    InetSocketAddress addr = new InetSocketAddress(port);
+                    if (self.getQuorumListenOnAllIPs()) {
+                        int port = self.quorumPeers.get(self.getId()).electionAddr.getPort();
+                        addr = new InetSocketAddress(port);
+                    } else {
+                        addr = self.quorumPeers.get(self.getId()).electionAddr;
+                    }
                     LOG.info("My election bind port: " + addr.toString());
                     setName(self.quorumPeers.get(self.getId()).electionAddr
                             .toString());

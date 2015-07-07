@@ -18,6 +18,7 @@
 package org.apache.zookeeper;
 
 import org.apache.jute.Record;
+import org.apache.zookeeper.common.PathUtils;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.proto.CheckVersionRequest;
 import org.apache.zookeeper.proto.CreateRequest;
@@ -155,6 +156,25 @@ public abstract class Op {
      */
     public abstract Record toRequestRecord() ;
 
+    /**
+     * Reconstructs the transaction with the chroot prefix.
+     * 
+     * @return transaction with chroot.
+     */
+    abstract Op withChroot(String addRootPrefix);
+
+    /**
+     * Performs client path validations.
+     * 
+     * @throws IllegalArgumentException
+     *             if an invalid path is specified
+     * @throws KeeperException.BadArgumentsException
+     *             if an invalid create mode flag is specified
+     */
+    void validate() throws KeeperException {
+        PathUtils.validatePath(path);
+    }
+
     //////////////////
     // these internal classes are public, but should not generally be referenced.
     //
@@ -210,6 +230,17 @@ public abstract class Op {
         public Record toRequestRecord() {
             return new CreateRequest(getPath(), data, acl, flags);
         }
+
+        @Override
+        Op withChroot(String path) {
+            return new Create(path, data, acl, flags);
+        }
+
+        @Override
+        void validate() throws KeeperException {
+            CreateMode createMode = CreateMode.fromFlag(flags);
+            PathUtils.validatePath(getPath(), createMode.isSequential());
+        }
     }
 
     public static class Delete extends Op {
@@ -239,6 +270,11 @@ public abstract class Op {
         @Override
         public Record toRequestRecord() {
             return new DeleteRequest(getPath(), version);
+        }
+
+        @Override
+        Op withChroot(String path) {
+            return new Delete(path, version);
         }
     }
 
@@ -272,6 +308,11 @@ public abstract class Op {
         public Record toRequestRecord() {
             return new SetDataRequest(getPath(), data, version);
         }
+
+        @Override
+        Op withChroot(String path) {
+            return new SetData(path, data, version);
+        }
     }
 
     public static class Check extends Op {
@@ -300,6 +341,11 @@ public abstract class Op {
         @Override
         public Record toRequestRecord() {
             return new CheckVersionRequest(getPath(), version);
+        }
+
+        @Override
+        Op withChroot(String path) {
+            return new Check(path, version);
         }
     }
 }

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -23,21 +23,21 @@
 # or the conf directory that is
 # a sibling of this script's directory
 
-ZOOBINDIR=${ZOOBINDIR:-/usr/bin}
-ZOOKEEPER_PREFIX=${ZOOBINDIR}/..
+ZOOBINDIR="${ZOOBINDIR:-/usr/bin}"
+ZOOKEEPER_PREFIX="${ZOOBINDIR}/.."
 
 if [ "x$ZOOCFGDIR" = "x" ]
 then
   if [ -e "${ZOOKEEPER_PREFIX}/conf" ]; then
     ZOOCFGDIR="$ZOOBINDIR/../conf"
-  else
+    else
     ZOOCFGDIR="$ZOOBINDIR/../etc/zookeeper"
   fi
 fi
 
 if [ -f "${ZOOCFGDIR}/zookeeper-env.sh" ]; then
   . "${ZOOCFGDIR}/zookeeper-env.sh"
-fi
+    fi
 
 if [ "x$ZOOCFG" = "x" ]
 then
@@ -52,13 +52,19 @@ then
 fi
 
 if [ "x${ZOO_LOG_DIR}" = "x" ]
-then
+then 
     ZOO_LOG_DIR="."
 fi
 
 if [ "x${ZOO_LOG4J_PROP}" = "x" ]
-then
+then 
     ZOO_LOG4J_PROP="INFO,CONSOLE"
+fi
+
+if [ "$JAVA_HOME" != "" ]; then
+  JAVA="$JAVA_HOME/bin/java"
+else
+  JAVA=java
 fi
 
 if [ "$JAVA_HOME" != "" ]; then
@@ -76,18 +82,19 @@ do
 done
 
 #make it work in the binary package
-if [ -e ${ZOOKEEPER_PREFIX}/share/zookeeper/zookeeper-*.jar ]; then
-  LIBPATH="${ZOOKEEPER_PREFIX}"/share/zookeeper/*.jar
+#(use array for LIBPATH to account for spaces within wildcard expansion)
+if [ -e "${ZOOKEEPER_PREFIX}"/share/zookeeper/zookeeper-*.jar ]; then
+  LIBPATH=("${ZOOKEEPER_PREFIX}"/share/zookeeper/*.jar)
 else
   #release tarball format
   for i in "$ZOOBINDIR"/../zookeeper-*.jar
-  do
+do 
     CLASSPATH="$i:$CLASSPATH"
-  done
-  LIBPATH="${ZOOBINDIR}"/../lib/*.jar
+done
+  LIBPATH=("${ZOOBINDIR}"/../lib/*.jar)
 fi
 
-for i in ${LIBPATH}
+for i in "${LIBPATH[@]}"
 do
     CLASSPATH="$i:$CLASSPATH"
 done

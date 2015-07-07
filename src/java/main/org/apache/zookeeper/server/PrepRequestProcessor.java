@@ -56,6 +56,7 @@ import org.apache.zookeeper.proto.CheckVersionRequest;
 import org.apache.zookeeper.server.ZooKeeperServer.ChangeRecord;
 import org.apache.zookeeper.server.auth.AuthenticationProvider;
 import org.apache.zookeeper.server.auth.ProviderRegistry;
+import org.apache.zookeeper.server.quorum.Leader.XidRolloverException;
 import org.apache.zookeeper.txn.CreateSessionTxn;
 import org.apache.zookeeper.txn.CreateTxn;
 import org.apache.zookeeper.txn.DeleteTxn;
@@ -131,6 +132,13 @@ public class PrepRequestProcessor extends Thread implements RequestProcessor {
             }
         } catch (InterruptedException e) {
             LOG.error("Unexpected interruption", e);
+        } catch (RequestProcessorException e) {
+            if (e.getCause() instanceof XidRolloverException) {
+                LOG.info(e.getCause().getMessage());
+            }
+            LOG.error("Unexpected exception", e);
+        } catch (Exception e) {
+            LOG.error("Unexpected exception", e);
         }
         LOG.info("PrepRequestProcessor exited loop!");
     }
@@ -190,10 +198,28 @@ public class PrepRequestProcessor extends Thread implements RequestProcessor {
     		String path = op.getPath();
 
     		try {
-    			ChangeRecord cr = getRecordForPath(path);
-    			if (cr != null) {
-    				pendingChangeRecords.put(path, cr);
-    			}
+    		    ChangeRecord cr = getRecordForPath(path);
+    		    if (cr != null) {
+    		        pendingChangeRecords.put(path, cr);
+    		    }
+    		    /*
+    		     * ZOOKEEPER-1624 - We need to store for parent's ChangeRecord
+    		     * of the parent node of a request. So that if this is a
+    		     * sequential node creation request, rollbackPendingChanges()
+    		     * can restore previous parent's ChangeRecord correctly.
+    		     *
+    		     * Otherwise, sequential node name generation will be incorrect
+    		     * for a subsequent request.
+    		     */
+    		    int lastSlash = path.lastIndexOf('/');
+    		    if (lastSlash == -1 || path.indexOf('\0') != -1) {
+    		        continue;
+    		    }
+    		    String parentPath = path.substring(0, lastSlash);
+    		    ChangeRecord parentCr = getRecordForPath(parentPath);
+    		    if (parentCr != null) {
+    		        pendingChangeRecords.put(parentPath, parentCr);
+    		    }
     		} catch (KeeperException.NoNodeException e) {
     			// ignore this one
     		}
@@ -292,7 +318,9 @@ public class PrepRequestProcessor extends Thread implements RequestProcessor {
      * @param record
      */
     @SuppressWarnings("unchecked")
-    protected void pRequest2Txn(int type, long zxid, Request request, Record record, boolean deserialize) throws KeeperException, IOException {
+    protected void pRequest2Txn(int type, long zxid, Request request, Record record, boolean deserialize)
+        throws KeeperException, IOException, RequestProcessorException
+    {
         request.hdr = new TxnHeader(request.sessionId, request.cxid, zxid,
                                     zks.getTime(), type);
 
@@ -493,7 +521,7 @@ public class PrepRequestProcessor extends Thread implements RequestProcessor {
      * @param request
      */
     @SuppressWarnings("unchecked")
-    protected void pRequest(Request request) {
+    protected void pRequest(Request request) throws RequestProcessorException {
         // LOG.info("Prep>>> cxid = " + request.cxid + " type = " +
         // request.type + " id = 0x" + Long.toHexString(request.sessionId));
         request.hdr = null;

@@ -31,6 +31,7 @@ import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Op;
 import org.apache.zookeeper.OpResult;
+import org.apache.zookeeper.Transaction;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
@@ -50,12 +51,224 @@ public class MultiTransactionTest extends ClientBase {
     private static final Logger LOG = Logger.getLogger(MultiTransactionTest.class);
 
     private ZooKeeper zk;
+    private ZooKeeper zk_chroot;
 
     @Before
     public void setUp() throws Exception {
         SyncRequestProcessor.setSnapCount(150);
         super.setUp();
         zk = createClient();
+    }
+
+        /**
+         * Test verifies the multi calls with invalid znode path
+         */
+        @Test(timeout = 90000)
+        public void testInvalidPath() throws Exception {
+        // create with CreateMode
+        List<Op> opList = Arrays.asList(Op.create("/multi0", new byte[0],
+                Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT), Op.create(
+                "/multi1/", new byte[0], Ids.OPEN_ACL_UNSAFE,
+                CreateMode.PERSISTENT), Op.create("/multi2", new byte[0],
+                Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT));
+        try {
+            zk.multi(opList);
+            Assert.fail("Shouldn't have validated in ZooKeeper client!");
+        } catch (IllegalArgumentException e) {
+            // expected
+        }
+
+        // create with valid sequential flag
+        opList = Arrays.asList(Op.create("/multi0", new byte[0],
+                Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT), Op.create(
+                "multi1/", new byte[0], Ids.OPEN_ACL_UNSAFE,
+                CreateMode.EPHEMERAL_SEQUENTIAL.toFlag()), Op.create("/multi2",
+                new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT));
+        try {
+            zk.multi(opList);
+            Assert.fail("Shouldn't have validated in ZooKeeper client!");
+        } catch (IllegalArgumentException e) {
+            // expected
+        }
+
+        // check
+        opList = Arrays.asList(Op.check("/multi0", -1),
+                Op.check("/multi1/", 100), Op.check("/multi2", 5));
+        try {
+            zk.multi(opList);
+            Assert.fail("Shouldn't have validated in ZooKeeper client!");
+        } catch (IllegalArgumentException e) {
+            // expected
+        }
+
+        // delete
+        opList = Arrays.asList(Op.delete("/multi0", -1),
+                Op.delete("/multi1/", 100), Op.delete("/multi2", 5));
+        try {
+            zk.multi(opList);
+            Assert.fail("Shouldn't have validated in ZooKeeper client!");
+        } catch (IllegalArgumentException e) {
+            // expected
+        }
+
+        // setdata
+        opList = Arrays.asList(Op.setData("/multi0", new byte[0], -1),
+                Op.setData("/multi1/", new byte[0], -1),
+                Op.setData("/multi2", new byte[0], -1),
+                Op.setData("multi3", new byte[0], -1));
+        try {
+            zk.multi(opList);
+            Assert.fail("Shouldn't have validated in ZooKeeper client!");
+        } catch (IllegalArgumentException e) {
+            // expected
+        }
+    }
+
+    /**
+     * Test verifies the multi calls with blank znode path
+     */
+    @Test(timeout = 90000)
+    public void testBlankPath() throws Exception {
+        // delete
+        List<Op> opList = Arrays.asList(Op.delete("/multi0", -1),
+                Op.delete(null, 100), Op.delete("/multi2", 5),
+                Op.delete("", -1));
+        try {
+            zk.multi(opList);
+            Assert.fail("Shouldn't have validated in ZooKeeper client!");
+        } catch (IllegalArgumentException e) {
+            // expected
+        }
+    }
+
+    /**
+     * Test verifies the multi.create with invalid createModeFlag
+     */
+    @Test(timeout = 90000)
+    public void testInvalidCreateModeFlag() throws Exception {
+        int createModeFlag = 6789;
+        List<Op> opList = Arrays.asList(Op.create("/multi0", new byte[0],
+                Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT), Op.create(
+                "/multi1", new byte[0], Ids.OPEN_ACL_UNSAFE, createModeFlag),
+                Op.create("/multi2", new byte[0], Ids.OPEN_ACL_UNSAFE,
+                        CreateMode.PERSISTENT));
+        try {
+            zk.multi(opList);
+            Assert.fail("Shouldn't have validated in ZooKeeper client!");
+        } catch (KeeperException.BadArgumentsException e) {
+            // expected
+        }
+    }
+
+    @Test
+    public void testChRootCreateDelete() throws Exception {
+        // creating the subtree for chRoot clients.
+        String chRoot = createNameSpace();
+        // Creating child using chRoot client.
+        zk_chroot = createClient(this.hostPort + chRoot);
+        Op createChild = Op.create("/myid", new byte[0],
+                Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        zk_chroot.multi(Arrays.asList(createChild));
+        
+        Assert.assertNotNull("zNode is not created under chroot:" + chRoot, zk
+                .exists(chRoot + "/myid", false));
+        Assert.assertNotNull("zNode is not created under chroot:" + chRoot,
+                zk_chroot.exists("/myid", false));
+        Assert.assertNull("zNode is created directly under '/', ignored configured chroot",
+                zk.exists("/myid", false));
+        
+        // Deleting child using chRoot client.
+        Op deleteChild = Op.delete("/myid", 0);
+        zk_chroot.multi(Arrays.asList(deleteChild));
+        Assert.assertNull("zNode exists under chroot:" + chRoot, zk.exists(
+                chRoot + "/myid", false));
+        Assert.assertNull("zNode exists under chroot:" + chRoot, zk_chroot
+                .exists("/myid", false));
+    }
+
+    @Test
+    public void testChRootSetData() throws Exception {
+        // creating the subtree for chRoot clients.
+        String chRoot = createNameSpace();
+        // setData using chRoot client.
+        zk_chroot = createClient(this.hostPort + chRoot);
+        String[] names = {"/multi0", "/multi1", "/multi2"};
+        List<Op> ops = new ArrayList<Op>();
+
+        for (int i = 0; i < names.length; i++) {
+            ops.add(Op.create(names[i], new byte[0], Ids.OPEN_ACL_UNSAFE,
+                    CreateMode.PERSISTENT));
+            ops.add(Op.setData(names[i], names[i].getBytes(), 0));
+        }
+
+        zk_chroot.multi(ops) ;
+
+        for (int i = 0; i < names.length; i++) {
+            Assert.assertArrayEquals("zNode data not matching", names[i]
+                    .getBytes(), zk_chroot.getData(names[i], false, null));
+        }
+    }
+
+    @Test
+    public void testChRootCheck() throws Exception {
+        // creating the subtree for chRoot clients.
+        String chRoot = createNameSpace();
+        // checking the child version using chRoot client.
+        zk_chroot = createClient(this.hostPort + chRoot);
+        String[] names = {"/multi0", "/multi1", "/multi2"};
+        List<Op> ops = new ArrayList<Op>();
+        for (int i = 0; i < names.length; i++) {
+            zk.create(chRoot + names[i], new byte[0], Ids.OPEN_ACL_UNSAFE,
+                    CreateMode.PERSISTENT);
+        }
+        for (int i = 0; i < names.length; i++) {
+            ops.add(Op.check(names[i], 0));
+        }
+        zk_chroot.multi(ops) ;
+    }
+
+    @Test
+    public void testChRootTransaction() throws Exception {
+        // creating the subtree for chRoot clients.
+        String chRoot = createNameSpace();
+        // checking the child version using chRoot client.
+        zk_chroot = createClient(this.hostPort + chRoot);
+        String childPath = "/myid";
+        Transaction transaction = zk_chroot.transaction();
+        transaction.create(childPath, new byte[0], Ids.OPEN_ACL_UNSAFE,
+                CreateMode.PERSISTENT);
+        transaction.check(childPath, 0);
+        transaction.setData(childPath, childPath.getBytes(), 0);
+        transaction.commit();
+
+        Assert.assertNotNull("zNode is not created under chroot:" + chRoot, zk
+                .exists(chRoot + childPath, false));
+        Assert.assertNotNull("zNode is not created under chroot:" + chRoot,
+                zk_chroot.exists(childPath, false));
+        Assert.assertNull("zNode is created directly under '/', ignored configured chroot",
+                        zk.exists(childPath, false));
+        Assert.assertArrayEquals("zNode data not matching", childPath
+                .getBytes(), zk_chroot.getData(childPath, false, null));
+
+        transaction = zk_chroot.transaction();
+        // Deleting child using chRoot client.
+        transaction.delete(childPath, 1);
+        transaction.commit();
+
+        Assert.assertNull("chroot:" + chRoot + " exists after delete", zk
+                .exists(chRoot + "/myid", false));
+        Assert.assertNull("chroot:" + chRoot + " exists after delete",
+                zk_chroot.exists("/myid", false));
+    }
+
+    private String createNameSpace() throws InterruptedException,
+            KeeperException {
+        // creating the subtree for chRoot clients.
+        String chRoot = "/appsX";
+        Op createChRoot = Op.create(chRoot, new byte[0], Ids.OPEN_ACL_UNSAFE,
+                CreateMode.PERSISTENT);
+        zk.multi(Arrays.asList(createChRoot));
+        return chRoot;
     }
 
     @Test

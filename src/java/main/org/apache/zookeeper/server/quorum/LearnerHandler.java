@@ -64,7 +64,11 @@ public class LearnerHandler extends Thread {
 
     final Leader leader;
 
-    long tickOfLastAck;
+    /** Deadline for receiving the next ack. If we are bootstrapping then
+     * it's based on the initLimit, if we are done bootstrapping it's based
+     * on the syncLimit. Once the deadline is past this learner should
+     * be considered no longer "sync'd" with the leader. */
+    volatile long tickOfNextAckDeadline;
     
     /**
      * ZooKeeper server identifier of this learner
@@ -87,6 +91,63 @@ public class LearnerHandler extends Thread {
     final LinkedBlockingQueue<QuorumPacket> queuedPackets =
         new LinkedBlockingQueue<QuorumPacket>();
 
+    /**
+     * This class controls the time that the Leader has been
+     * waiting for acknowledgement of a proposal from this Learner.
+     * If the time is above syncLimit, the connection will be closed.
+     * It keeps track of only one proposal at a time, when the ACK for
+     * that proposal arrives, it switches to the last proposal received
+     * or clears the value if there is no pending proposal.
+     */
+    private class SyncLimitCheck {
+        private boolean started = false;
+        private long currentZxid = 0;
+        private long currentTime = 0;
+        private long nextZxid = 0;
+        private long nextTime = 0;
+
+        public synchronized void start() {
+            started = true;
+        }
+
+        public synchronized void updateProposal(long zxid, long time) {
+            if (!started) {
+                return;
+            }
+            if (currentTime == 0) {
+                currentTime = time;
+                currentZxid = zxid;
+            } else {
+                nextTime = time;
+                nextZxid = zxid;
+            }
+        }
+
+        public synchronized void updateAck(long zxid) {
+             if (currentZxid == zxid) {
+                 currentTime = nextTime;
+                 currentZxid = nextZxid;
+                 nextTime = 0;
+                 nextZxid = 0;
+             } else if (nextZxid == zxid) {
+                 LOG.warn("ACK for " + zxid + " received before ACK for " + currentZxid + "!!!!");
+                 nextTime = 0;
+                 nextZxid = 0;
+             }
+        }
+
+        public synchronized boolean check(long time) {
+            if (currentTime == 0) {
+                return true;
+            } else {
+                long msDelay = (time - currentTime) / 1000000;
+                return (msDelay < (leader.self.tickTime * leader.self.syncLimit));
+            }
+        }
+    };
+
+    private SyncLimitCheck syncLimitCheck = new SyncLimitCheck();
+
     private BinaryInputArchive ia;
 
     private BinaryOutputArchive oa;
@@ -104,7 +165,7 @@ public class LearnerHandler extends Thread {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("LearnerHandler ").append(sock);
-        sb.append(" tickOfLastAck:").append(tickOfLastAck());
+        sb.append(" tickOfNextAckDeadline:").append(tickOfNextAckDeadline());
         sb.append(" synced?:").append(synced());
         sb.append(" queuedPacketLength:").append(queuedPackets.size());
         return sb.toString();
@@ -143,6 +204,9 @@ public class LearnerHandler extends Thread {
                 }
                 if (p.getType() == Leader.PING) {
                     traceMask = ZooTrace.SERVER_PING_TRACE_MASK;
+                }
+                if (p.getType() == Leader.PROPOSAL) {
+                    syncLimitCheck.updateProposal(p.getZxid(), System.nanoTime());
                 }
                 if (LOG.isTraceEnabled()) {
                     ZooTrace.logQuorumPacket(LOG, traceMask, 'o', p);
@@ -232,8 +296,10 @@ public class LearnerHandler extends Thread {
      */
     @Override
     public void run() {
-        try {            
-            sock.setSoTimeout(leader.self.getTickTime()*leader.self.getInitLimit());
+        try {
+            tickOfNextAckDeadline = leader.self.tick
+                    + leader.self.initLimit + leader.self.syncLimit;
+
             ia = BinaryInputArchive.getArchive(new BufferedInputStream(sock
                     .getInputStream()));
             bufferedOutput = new BufferedOutputStream(sock.getOutputStream());
@@ -338,6 +404,12 @@ public class LearnerHandler extends Thread {
                         // whether to expect a trunc or a diff
                         boolean firstPacket=true;
 
+                        // If we are here, we can use committedLog to sync with
+                        // follower. Then we only need to decide whether to
+                        // send trunc or not
+                        packetToSend = Leader.DIFF;
+                        zxidToSend = maxCommittedLog;
+
                         for (Proposal propose: proposals) {
                             // skip the proposals the peer already has
                             if (propose.packet.getZxid() <= peerLastZxid) {
@@ -351,18 +423,10 @@ public class LearnerHandler extends Thread {
                                     // Does the peer have some proposals that the leader hasn't seen yet
                                     if (prevProposalZxid < peerLastZxid) {
                                         // send a trunc message before sending the diff
-                                        packetToSend = Leader.TRUNC;
-                                        LOG.info("Sending TRUNC");
+                                        packetToSend = Leader.TRUNC;                                        
                                         zxidToSend = prevProposalZxid;
                                         updates = zxidToSend;
-                                    } 
-                                    else {
-                                        // Just send the diff
-                                        packetToSend = Leader.DIFF;
-                                        LOG.info("Sending diff");
-                                        zxidToSend = maxCommittedLog;        
                                     }
-
                                 }
                                 queuePacket(propose.packet);
                                 QuorumPacket qcommit = new QuorumPacket(Leader.COMMIT, propose.packet.getZxid(),
@@ -381,19 +445,23 @@ public class LearnerHandler extends Thread {
                     } else {
                         LOG.warn("Unhandled proposal scenario");
                     }
+                } else if (peerLastZxid == leader.zk.getZKDatabase().getDataTreeLastProcessedZxid()) {
+                    // The leader may recently take a snapshot, so the committedLog
+                    // is empty. We don't need to send snapshot if the follow
+                    // is already sync with in-memory db.
+                    LOG.debug("committedLog is empty but leader and follower "
+                            + "are in sync, zxid=0x{}",
+                            Long.toHexString(peerLastZxid));
+                    packetToSend = Leader.DIFF;
+                    zxidToSend = peerLastZxid;
                 } else {
                     // just let the state transfer happen
                     LOG.debug("proposals is empty");
                 }               
 
+                LOG.info("Sending " + Leader.getPacketType(packetToSend));
                 leaderLastZxid = leader.startForwarding(this, updates);
-                if (peerLastZxid == leaderLastZxid) {
-                    LOG.debug("Leader and follower are in sync, sending empty diff. zxid=0x{}",
-                            Long.toHexString(leaderLastZxid));
-                    // We are in sync so we'll do an empty diff
-                    packetToSend = Leader.DIFF;
-                    zxidToSend = leaderLastZxid;
-                }
+
             } finally {
                 rl.unlock();
             }
@@ -451,8 +519,14 @@ public class LearnerHandler extends Thread {
                 LOG.error("Next packet was supposed to be an ACK");
                 return;
             }
-            leader.processAck(this.sid, qp.getZxid(), sock.getLocalSocketAddress());
+            LOG.info("Received NEWLEADER-ACK message from " + getSid());
+            leader.waitForNewLeaderAck(getSid(), qp.getZxid(), getLearnerType());
+
+            syncLimitCheck.start();
             
+            // now that the ack has been processed expect the syncLimit
+            sock.setSoTimeout(leader.self.tickTime * leader.self.syncLimit);
+
             /*
              * Wait until leader starts up
              */
@@ -467,7 +541,6 @@ public class LearnerHandler extends Thread {
             //
             queuedPackets.add(new QuorumPacket(Leader.UPTODATE, -1, null, null));
 
-            
             while (true) {
                 qp = new QuorumPacket();
                 ia.readRecord(qp, "packet");
@@ -479,7 +552,7 @@ public class LearnerHandler extends Thread {
                 if (LOG.isTraceEnabled()) {
                     ZooTrace.logQuorumPacket(LOG, traceMask, 'i', qp);
                 }
-                tickOfLastAck = leader.self.tick;
+                tickOfNextAckDeadline = leader.self.tick + leader.self.syncLimit;
 
 
                 ByteBuffer bb;
@@ -494,6 +567,7 @@ public class LearnerHandler extends Thread {
                             LOG.debug("Received ACK from Observer  " + this.sid);
                         }
                     }
+                    syncLimitCheck.updateAck(qp.getZxid());
                     leader.processAck(this.sid, qp.getZxid(), sock.getLocalSocketAddress());
                     break;
                 case Leader.PING:
@@ -594,8 +668,8 @@ public class LearnerHandler extends Thread {
         leader.removeLearnerHandler(this);
     }
 
-    public long tickOfLastAck() {
-        return tickOfLastAck;
+    public long tickOfNextAckDeadline() {
+        return tickOfNextAckDeadline;
     }
 
     /**
@@ -603,12 +677,16 @@ public class LearnerHandler extends Thread {
      */
     public void ping() {
         long id;
-        synchronized(leader) {
-            id = leader.lastProposed;
+        if (syncLimitCheck.check(System.nanoTime())) {
+            synchronized(leader) {
+                id = leader.lastProposed;
+            }
+            QuorumPacket ping = new QuorumPacket(Leader.PING, id, null, null);
+            queuePacket(ping);
+        } else {
+            LOG.warn("Closing connection to peer due to transaction timeout.");
+            shutdown();
         }
-        QuorumPacket ping = new QuorumPacket(Leader.PING, id,
-                null, null);
-        queuePacket(ping);
     }
 
     void queuePacket(QuorumPacket p) {
@@ -617,6 +695,6 @@ public class LearnerHandler extends Thread {
 
     public boolean synced() {
         return isAlive()
-        && tickOfLastAck >= leader.self.tick - leader.self.syncLimit;
+        && leader.self.tick <= tickOfNextAckDeadline;
     }
 }

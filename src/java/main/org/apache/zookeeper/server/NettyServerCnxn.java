@@ -25,8 +25,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Writer;
-import java.lang.management.ManagementFactory;
-import java.lang.management.OperatingSystemMXBean;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
@@ -49,13 +47,12 @@ import org.apache.zookeeper.proto.WatcherEvent;
 import org.apache.zookeeper.server.quorum.Leader;
 import org.apache.zookeeper.server.quorum.LeaderZooKeeperServer;
 import org.apache.zookeeper.server.quorum.ReadOnlyZooKeeperServer;
+import org.apache.zookeeper.server.util.OSMXBean;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.channel.Channel;
 import org.jboss.netty.channel.ChannelFuture;
 import org.jboss.netty.channel.MessageEvent;
-
-import com.sun.management.UnixOperatingSystemMXBean;
 
 public class NettyServerCnxn extends ServerCnxn {
     Logger LOG = LoggerFactory.getLogger(NettyServerCnxn.class);
@@ -111,12 +108,12 @@ public class NettyServerCnxn extends ServerCnxn {
                             .getRemoteAddress()).getAddress());
                 s.remove(this);
             }
-    
-            if (channel.isOpen()) {
-                channel.close();
-            }
-            factory.unregisterConnection(this);
         }
+
+        if (channel.isOpen()) {
+            channel.close();
+        }
+        factory.unregisterConnection(this);
     }
 
     @Override
@@ -158,9 +155,13 @@ public class NettyServerCnxn extends ServerCnxn {
         ResumeMessageEvent(Channel channel) {
             this.channel = channel;
         }
+        @Override
         public Object getMessage() {return null;}
+        @Override
         public SocketAddress getRemoteAddress() {return null;}
+        @Override
         public Channel getChannel() {return channel;}
+        @Override
         public ChannelFuture getFuture() {return null;}
     };
     
@@ -214,7 +215,7 @@ public class NettyServerCnxn extends ServerCnxn {
     @Override
     public void sendBuffer(ByteBuffer sendBuffer) {
         if (sendBuffer == ServerCnxnFactory.closeConn) {
-            channel.close();
+            close();
             return;
         }
         channel.write(wrappedBuffer(sendBuffer));
@@ -560,6 +561,7 @@ public class NettyServerCnxn extends ServerCnxn {
 
             print("packets_received", stats.getPacketsReceived());
             print("packets_sent", stats.getPacketsSent());
+            print("num_alive_connections", stats.getNumAliveClientConnections());
 
             print("outstanding_requests", stats.getOutstandingRequests());
 
@@ -570,20 +572,18 @@ public class NettyServerCnxn extends ServerCnxn {
             print("ephemerals_count", zkdb.getDataTree().getEphemeralsCount());
             print("approximate_data_size", zkdb.getDataTree().approximateDataSize());
 
-            OperatingSystemMXBean osMbean = ManagementFactory.getOperatingSystemMXBean();
-            if(osMbean != null && osMbean instanceof UnixOperatingSystemMXBean) {
-                UnixOperatingSystemMXBean unixos = (UnixOperatingSystemMXBean)osMbean;
-
-                print("open_file_descriptor_count", unixos.getOpenFileDescriptorCount());
-                print("max_file_descriptor_count", unixos.getMaxFileDescriptorCount());
+            OSMXBean osMbean = new OSMXBean();
+            if (osMbean != null && osMbean.getUnix() == true) {
+                print("open_file_descriptor_count", osMbean.getOpenFileDescriptorCount());
+                print("max_file_descriptor_count", osMbean.getMaxFileDescriptorCount());
             }
-
+          
             if(stats.getServerState().equals("leader")) {
                 Leader leader = ((LeaderZooKeeperServer)zkServer).getLeader();
 
-                print("followers", leader.learners.size());
-                print("synced_followers", leader.forwardingFollowers.size());
-                print("pending_syncs", leader.pendingSyncs.size());
+                print("followers", leader.getLearners().size());
+                print("synced_followers", leader.getForwardingFollowers().size());
+                print("pending_syncs", leader.getNumPendingSyncs());
             }
         }
 
@@ -743,7 +743,7 @@ public class NettyServerCnxn extends ServerCnxn {
                             zks.processPacket(this, bb);
 
                             if (zks.shouldThrottle(outstandingCount.incrementAndGet())) {
-                                disableRecv();
+                                disableRecvNoWait();
                             }
                         } else {
                             LOG.debug("got conn req request from "
@@ -807,13 +807,17 @@ public class NettyServerCnxn extends ServerCnxn {
 
     @Override
     public void disableRecv() {
+        disableRecvNoWait().awaitUninterruptibly();
+    }
+    
+    private ChannelFuture disableRecvNoWait() {
         throttled = true;
         if (LOG.isDebugEnabled()) {
             LOG.debug("Throttling - disabling recv " + this);
         }
-        channel.setReadable(false).awaitUninterruptibly();
+        return channel.setReadable(false);
     }
-
+    
     @Override
     public long getOutstandingRequests() {
         return outstandingCount.longValue();
@@ -836,6 +840,7 @@ public class NettyServerCnxn extends ServerCnxn {
 
     /** Send close connection packet to the client.
      */
+    @Override
     public void sendCloseSession() {
         sendBuffer(ServerCnxnFactory.closeConn);
     }

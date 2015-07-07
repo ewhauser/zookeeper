@@ -20,15 +20,20 @@ package org.apache.zookeeper.server.quorum;
 
 import static org.apache.zookeeper.test.ClientBase.CONNECTION_TIMEOUT;
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileReader;
 import java.io.LineNumberReader;
+import java.io.OutputStreamWriter;
 import java.io.StringReader;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.Map;
-import java.util.Map.Entry;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 import org.apache.log4j.Layout;
@@ -38,15 +43,15 @@ import org.apache.log4j.WriterAppender;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.PortAssignment;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher.Event.KeeperState;
 import org.apache.zookeeper.ZooDefs.OpCode;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.ZooKeeper.States;
+import org.apache.zookeeper.common.AtomicFileOutputStream;
 import org.apache.zookeeper.server.quorum.Leader.Proposal;
-import org.apache.zookeeper.server.quorum.QuorumPeerTestBase.MainThread;
+import org.apache.zookeeper.server.util.ZxidUtils;
 import org.apache.zookeeper.test.ClientBase;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -56,6 +61,25 @@ import org.junit.Test;
  *
  */
 public class QuorumPeerMainTest extends QuorumPeerTestBase {
+    protected static final Logger LOG =
+        Logger.getLogger(QuorumPeerMainTest.class);
+
+    private Servers servers;
+    private int numServers = 0;
+
+    @After
+    public void tearDown() throws Exception {
+        if (servers == null || servers.mt == null) {
+            LOG.info("No servers to shutdown!");
+            return;
+        }
+        for (int i = 0; i < numServers; i++) {
+            if (i < servers.mt.length) {
+                servers.mt[i].shutdown();
+            }
+        }
+    }
+
 	/**
      * Verify the ability to start a cluster.
      */
@@ -87,7 +111,7 @@ public class QuorumPeerMainTest extends QuorumPeerTestBase {
 
         ZooKeeper zk = new ZooKeeper("127.0.0.1:" + CLIENT_PORT_QP1,
                 ClientBase.CONNECTION_TIMEOUT, this);
-
+        waitForOne(zk, States.CONNECTED);
         zk.create("/foo_q1", "foobar1".getBytes(), Ids.OPEN_ACL_UNSAFE,
                 CreateMode.PERSISTENT);
         Assert.assertEquals(new String(zk.getData("/foo_q1", null, null)), "foobar1");
@@ -95,7 +119,7 @@ public class QuorumPeerMainTest extends QuorumPeerTestBase {
 
         zk = new ZooKeeper("127.0.0.1:" + CLIENT_PORT_QP2,
                 ClientBase.CONNECTION_TIMEOUT, this);
-
+        waitForOne(zk, States.CONNECTED);
         zk.create("/foo_q2", "foobar2".getBytes(), Ids.OPEN_ACL_UNSAFE,
                 CreateMode.PERSISTENT);
         Assert.assertEquals(new String(zk.getData("/foo_q2", null, null)), "foobar2");
@@ -218,14 +242,14 @@ public class QuorumPeerMainTest extends QuorumPeerTestBase {
      */
     @Test
     public void testHighestZxidJoinLate() throws Exception {
-        int numServers = 3;
-        Servers svrs = LaunchServers(numServers);
+        numServers = 3;
+        servers = LaunchServers(numServers);
         String path = "/hzxidtest";
         int leader=-1;
 
         // find the leader
         for (int i=0; i < numServers; i++) {
-            if (svrs.mt[i].main.quorumPeer.leader != null) {
+            if (servers.mt[i].main.quorumPeer.leader != null) {
                 leader = i;
             }
         }
@@ -240,47 +264,47 @@ public class QuorumPeerMainTest extends QuorumPeerTestBase {
         byte[] output;
 
         // Create a couple of nodes
-        svrs.zk[leader].create(path+leader, input, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
-        svrs.zk[leader].create(path+nonleader, input, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        servers.zk[leader].create(path+leader, input, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        servers.zk[leader].create(path+nonleader, input, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
         
         // make sure the updates indeed committed. If it is not
         // the following statement will throw.
-        output = svrs.zk[leader].getData(path+nonleader, false, null);
+        output = servers.zk[leader].getData(path+nonleader, false, null);
         
         // Shutdown every one else but the leader
         for (int i=0; i < numServers; i++) {
             if (i != leader) {
-                svrs.mt[i].shutdown();
+                servers.mt[i].shutdown();
             }
         }
 
         input[0] = 2;
 
         // Update the node on the leader
-        svrs.zk[leader].setData(path+leader, input, -1, null, null);     
+        servers.zk[leader].setData(path+leader, input, -1, null, null);     
         
         // wait some time to let this get written to disk
         Thread.sleep(500);
 
         // shut the leader down
-        svrs.mt[leader].shutdown();
+        servers.mt[leader].shutdown();
 
         System.gc();
 
-        waitForAll(svrs.zk, States.CONNECTING);
+        waitForAll(servers.zk, States.CONNECTING);
 
         // Start everyone but the leader
         for (int i=0; i < numServers; i++) {
             if (i != leader) {
-                svrs.mt[i].start();
+                servers.mt[i].start();
             }
         }
 
         // wait to connect to one of these
-        waitForOne(svrs.zk[nonleader], States.CONNECTED);
+        waitForOne(servers.zk[nonleader], States.CONNECTED);
 
         // validate that the old value is there and not the new one
-        output = svrs.zk[nonleader].getData(path+leader, false, null);
+        output = servers.zk[nonleader].getData(path+leader, false, null);
 
         Assert.assertEquals(
                 "Expecting old value 1 since 2 isn't committed yet",
@@ -288,22 +312,22 @@ public class QuorumPeerMainTest extends QuorumPeerTestBase {
 
         // Do some other update, so we bump the maxCommttedZxid
         // by setting the value to 2
-        svrs.zk[nonleader].setData(path+nonleader, input, -1);
+        servers.zk[nonleader].setData(path+nonleader, input, -1);
 
         // start the old leader 
-        svrs.mt[leader].start();
+        servers.mt[leader].start();
 
         // connect to it
-        waitForOne(svrs.zk[leader], States.CONNECTED);
+        waitForOne(servers.zk[leader], States.CONNECTED);
 
         // make sure it doesn't have the new value that it alone had logged
-        output = svrs.zk[leader].getData(path+leader, false, null);
+        output = servers.zk[leader].getData(path+leader, false, null);
         Assert.assertEquals(
                 "Validating that the deposed leader has rolled back that change it had written",
                 output[0], 1);
         
         // make sure the leader has the subsequent changes that were made while it was offline
-        output = svrs.zk[leader].getData(path+nonleader, false, null);
+        output = servers.zk[leader].getData(path+nonleader, false, null);
         Assert.assertEquals(
                 "Validating that the deposed leader caught up on changes it missed",
                 output[0], 2);
@@ -406,7 +430,7 @@ public class QuorumPeerMainTest extends QuorumPeerTestBase {
 
             boolean isup =
                 ClientBase.waitForServerUp("127.0.0.1:" + CLIENT_PORT_QP1,
-                        5000);
+                        30000);
 
             Assert.assertFalse("Server never came up", isup);
 
@@ -567,7 +591,7 @@ public class QuorumPeerMainTest extends QuorumPeerTestBase {
         
         ZooKeeper zk = new ZooKeeper("127.0.0.1:" + CLIENT_PORT_QP1,
                 ClientBase.CONNECTION_TIMEOUT, this);
-
+        waitForOne(zk, States.CONNECTED);
         zk.create("/foo_q1", "foobar1".getBytes(), Ids.OPEN_ACL_UNSAFE,
                 CreateMode.PERSISTENT);
         Assert.assertEquals(new String(zk.getData("/foo_q1", null, null)), "foobar1");
@@ -668,5 +692,107 @@ public class QuorumPeerMainTest extends QuorumPeerTestBase {
            Assert.fail("QuorumPeer took " + (end -start) +
                     " to shutdown, expected " + maxwait);
         }
+    }
+
+    static long readLongFromFile(File file) throws IOException {
+        BufferedReader br = new BufferedReader(new FileReader(file));
+        String line = "";
+        try {
+            line = br.readLine();
+            return Long.parseLong(line);
+        } catch(NumberFormatException e) {
+            throw new IOException("Found " + line + " in " + file);
+        } finally {
+            br.close();
+        }
+    }
+
+    static void writeLongToFile(File file, long value) throws IOException {
+        AtomicFileOutputStream out = new AtomicFileOutputStream(file);
+        BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(out));
+        try {
+            bw.write(Long.toString(value));
+            bw.flush();
+            out.flush();
+            out.close();
+        } catch (IOException e) {
+            LOG.error("Failed to write new file " + file, e);
+            out.abort();
+            throw e;
+        }
+    }
+
+    /**
+     * ZOOKEEPER-1653 Make sure the server starts if the current epoch is less
+     * than the epoch from last logged zxid and updatingEpoch file exists.
+     */
+    @Test
+    public void testUpdatingEpoch() throws Exception {
+        // Create a cluster and restart them multiple times to bump the epoch.
+        numServers = 3;
+        servers = LaunchServers(numServers);
+        File currentEpochFile;
+        for (int i = 0; i < 10; i++) {
+            for (int j = 0; j < numServers; j++) {
+                servers.mt[j].shutdown();
+            }
+            waitForAll(servers.zk, States.CONNECTING);
+            for (int j = 0; j < numServers; j++) {
+                servers.mt[j].start();
+            }
+            waitForAll(servers.zk, States.CONNECTED);
+        }
+
+        // Current epoch is 11 now.
+        for (int i = 0; i < numServers; i++) {
+            currentEpochFile = new File(
+                new File(servers.mt[i].dataDir, "version-2"),
+                QuorumPeer.CURRENT_EPOCH_FILENAME);
+            LOG.info("Validating current epoch: " + servers.mt[i].dataDir);
+            Assert.assertEquals("Current epoch should be 11.", 11,
+                                readLongFromFile(currentEpochFile));
+        }
+
+        // Find a follower and get epoch from the last logged zxid.
+        int followerIndex = -1;
+        for (int i = 0; i < numServers; i++) {
+            if (servers.mt[i].main.quorumPeer.leader == null) {
+                followerIndex = i;
+                break;
+            }
+        }
+        Assert.assertTrue("Found a valid follower",
+                          followerIndex >= 0 && followerIndex < numServers);
+        MainThread follower = servers.mt[followerIndex];
+        long zxid = follower.main.quorumPeer.getLastLoggedZxid();
+        long epochFromZxid = ZxidUtils.getEpochFromZxid(zxid);
+
+        // Shutdown the cluster
+        for (int i = 0; i < numServers; i++) {
+          servers.mt[i].shutdown();
+        }
+        waitForAll(servers.zk, States.CONNECTING);
+
+        // Make current epoch less than epoch from the last logged zxid.
+        // The server should fail to start.
+        File followerDataDir = new File(follower.dataDir, "version-2");
+        currentEpochFile = new File(followerDataDir,
+                QuorumPeer.CURRENT_EPOCH_FILENAME);
+        writeLongToFile(currentEpochFile, epochFromZxid - 1);
+        follower.start();
+        Assert.assertTrue(follower.mainFailed.await(10, TimeUnit.SECONDS));
+
+        // Touch the updateEpoch file. Now the server should start.
+        File updatingEpochFile = new File(followerDataDir,
+                QuorumPeer.UPDATING_EPOCH_FILENAME);
+        updatingEpochFile.createNewFile();
+        for (int i = 0; i < numServers; i++) {
+          servers.mt[i].start();
+        }
+        waitForAll(servers.zk, States.CONNECTED);
+        Assert.assertNotNull("Make sure the server started with acceptEpoch",
+                             follower.main.quorumPeer.getActiveServer());
+        Assert.assertFalse("updatingEpoch file should get deleted",
+                           updatingEpochFile.exists());
     }
 }

@@ -20,8 +20,6 @@ package org.apache.zookeeper.test;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.management.ManagementFactory;
-import java.lang.management.OperatingSystemMXBean;
 import java.net.InetSocketAddress;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -35,9 +33,8 @@ import org.apache.zookeeper.server.quorum.Election;
 import org.apache.zookeeper.server.quorum.QuorumPeer;
 import org.apache.zookeeper.server.quorum.QuorumPeer.LearnerType;
 import org.apache.zookeeper.server.quorum.QuorumPeer.QuorumServer;
+import org.apache.zookeeper.server.util.OSMXBean;
 import org.junit.Assert;
-
-import com.sun.management.UnixOperatingSystemMXBean;
 
 /**
  * Utility for quorum testing. Setups 2n+1 peers and allows to start/stop all
@@ -82,7 +79,7 @@ public class QuorumUtil {
      * @param n
      *            number of peers in the ensemble will be 2n+1
      */
-    public QuorumUtil(int n) throws RuntimeException {
+    public QuorumUtil(int n, int syncLimit) throws RuntimeException {
         try {
             ClientBase.setupTestEnv();
             JMXEnv.setUp();
@@ -91,7 +88,7 @@ public class QuorumUtil {
             ALL = 2 * N + 1;
             tickTime = 2000;
             initLimit = 3;
-            syncLimit = 3;
+            this.syncLimit = syncLimit;
             electionAlg = 3;
             hostPort = "";
 
@@ -117,6 +114,10 @@ public class QuorumUtil {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public QuorumUtil(int n) throws RuntimeException {
+        this(n, 3);
     }
 
     public PeerStruct getPeer(int id) {
@@ -160,6 +161,8 @@ public class QuorumUtil {
             JMXEnv.ensureAll(ensureNames.toArray(new String[ensureNames.size()]));
         } catch (IOException e) {
             LOG.warn("IOException during JMXEnv operation", e);
+        } catch (InterruptedException e) {
+            LOG.warn("InterruptedException during JMXEnv operation", e);
         }
     }
 
@@ -246,10 +249,9 @@ public class QuorumUtil {
     public void tearDown() throws Exception {
         LOG.info("TearDown started");
 
-        OperatingSystemMXBean osMbean = ManagementFactory.getOperatingSystemMXBean();
-        if (osMbean != null && osMbean instanceof UnixOperatingSystemMXBean) {
-            UnixOperatingSystemMXBean unixos = (UnixOperatingSystemMXBean) osMbean;
-            LOG.info("fdcount after test is: " + unixos.getOpenFileDescriptorCount());
+        OSMXBean osMbean = new OSMXBean();
+        if (osMbean.getUnix() == true) {    
+            LOG.info("fdcount after test is: " + osMbean.getOpenFileDescriptorCount());
         }
 
         shutdownAll();
