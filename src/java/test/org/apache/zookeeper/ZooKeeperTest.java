@@ -17,7 +17,11 @@
  */
 package org.apache.zookeeper;
 
+import static org.junit.Assert.*;
+
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -148,4 +152,53 @@ public class ZooKeeperTest extends ClientBase {
         Assert.assertEquals("ls is not taken as first argument", zkMain.cl.getCmdArgument(0), "ls");
         Assert.assertEquals("/ is not taken as second argument", zkMain.cl.getCmdArgument(1), "/");
     }
+
+    @Test
+    public void testCheckInvalidAcls() throws Exception {
+         final ZooKeeper zk = createClient();
+            ZooKeeperMain zkMain = new ZooKeeperMain(zk);
+            String cmdstring = "create -s -e /node data ip:scheme:gggsd"; //invalid acl's
+            try{
+                 zkMain.executeLine(cmdstring);
+            }catch(KeeperException.InvalidACLException e){
+                fail("For Invalid ACls should not throw exception");
+            }
+    }
+
+    @Test
+    public void testDeleteWithInvalidVersionNo() throws Exception {
+         final ZooKeeper zk = createClient();
+            ZooKeeperMain zkMain = new ZooKeeperMain(zk);
+            String cmdstring = "create -s -e /node1 data "; 
+            String cmdstring1 = "delete /node1 2";//invalid dataversion no
+                 zkMain.executeLine(cmdstring);
+           try{
+               zkMain.executeLine(cmdstring1);
+                     
+            }catch(KeeperException.BadVersionException e){
+                fail("For Invalid dataversion number should not throw exception");
+            }
+    }
+
+    @Test
+    public void testCliCommandsNotEchoingUsage() throws Exception {
+            // setup redirect out/err streams to get System.in/err, use this judiciously!
+           final PrintStream systemErr = System.err; // get current err
+           final ByteArrayOutputStream errContent = new ByteArrayOutputStream();
+           System.setErr(new PrintStream(errContent));
+           final ZooKeeper zk = createClient();
+           ZooKeeperMain zkMain = new ZooKeeperMain(zk);
+           String cmd1 = "printwatches";
+           zkMain.executeLine(cmd1);
+           String cmd2 = "history";
+           zkMain.executeLine(cmd2);
+           String cmd3 = "redo";
+           zkMain.executeLine(cmd3);
+           // revert redirect of out/err streams - important step!
+           System.setErr(systemErr);
+           if (errContent.toString().contains("ZooKeeper -server host:port cmd args")) {
+                fail("CLI commands (history, redo, connect, printwatches) display usage info!");
+            }
+    }
+
 }

@@ -23,8 +23,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Writer;
-import java.lang.management.ManagementFactory;
-import java.lang.management.OperatingSystemMXBean;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -51,7 +49,7 @@ import org.apache.zookeeper.proto.WatcherEvent;
 import org.apache.zookeeper.server.quorum.Leader;
 import org.apache.zookeeper.server.quorum.LeaderZooKeeperServer;
 import org.apache.zookeeper.server.quorum.ReadOnlyZooKeeperServer;
-import com.sun.management.UnixOperatingSystemMXBean;
+import org.apache.zookeeper.server.util.OSMXBean;
 
 /**
  * This class handles communication with clients using NIO. There is one per
@@ -62,9 +60,9 @@ public class NIOServerCnxn extends ServerCnxn {
 
     NIOServerCnxnFactory factory;
 
-    SocketChannel sock;
+    final SocketChannel sock;
 
-    private SelectionKey sk;
+    private final SelectionKey sk;
 
     boolean initialized;
 
@@ -134,7 +132,7 @@ public class NIOServerCnxn extends ServerCnxn {
             */
            sock.configureBlocking(true);
            if (bb != ServerCnxnFactory.closeConn) {
-               if (sock != null) {
+               if (sock.isOpen()) {
                    sock.write(bb);
                }
                packetSent();
@@ -206,9 +204,19 @@ public class NIOServerCnxn extends ServerCnxn {
         }
     }
 
+    /**
+     * Only used in order to allow testing
+     */
+    protected boolean isSocketOpen() {
+        return sock.isOpen();
+    }
+
+    /**
+     * Handles read/write IO on connection.
+     */
     void doIO(SelectionKey k) throws InterruptedException {
         try {
-            if (sock == null) {
+            if (isSocketOpen() == false) {
                 LOG.warn("trying to do i/o on a null socket for session:0x"
                          + Long.toHexString(sessionId));
 
@@ -749,6 +757,7 @@ public class NIOServerCnxn extends ServerCnxn {
 
             print("packets_received", stats.getPacketsReceived());
             print("packets_sent", stats.getPacketsSent());
+            print("num_alive_connections", stats.getNumAliveClientConnections());
 
             print("outstanding_requests", stats.getOutstandingRequests());
 
@@ -759,20 +768,18 @@ public class NIOServerCnxn extends ServerCnxn {
             print("ephemerals_count", zkdb.getDataTree().getEphemeralsCount());
             print("approximate_data_size", zkdb.getDataTree().approximateDataSize());
 
-            OperatingSystemMXBean osMbean = ManagementFactory.getOperatingSystemMXBean();
-            if(osMbean != null && osMbean instanceof UnixOperatingSystemMXBean) {
-                UnixOperatingSystemMXBean unixos = (UnixOperatingSystemMXBean)osMbean;
-
-                print("open_file_descriptor_count", unixos.getOpenFileDescriptorCount());
-                print("max_file_descriptor_count", unixos.getMaxFileDescriptorCount());
+            OSMXBean osMbean = new OSMXBean();
+            if (osMbean != null && osMbean.getUnix() == true) {
+                print("open_file_descriptor_count", osMbean.getOpenFileDescriptorCount());
+                print("max_file_descriptor_count", osMbean.getMaxFileDescriptorCount());
             }
 
             if(stats.getServerState().equals("leader")) {
                 Leader leader = ((LeaderZooKeeperServer)zkServer).getLeader();
 
-                print("followers", leader.learners.size());
-                print("synced_followers", leader.forwardingFollowers.size());
-                print("pending_syncs", leader.pendingSyncs.size());
+                print("followers", leader.getLearners().size());
+                print("synced_followers", leader.getForwardingFollowers().size());
+                print("pending_syncs", leader.getNumPendingSyncs());
             }
         }
 
@@ -993,7 +1000,7 @@ public class NIOServerCnxn extends ServerCnxn {
      * Close resources associated with the sock of this cnxn. 
      */
     private void closeSock() {
-        if (sock == null) {
+        if (sock.isOpen() == false) {
             return;
         }
 
@@ -1042,7 +1049,6 @@ public class NIOServerCnxn extends ServerCnxn {
                 LOG.debug("ignoring exception during socketchannel close", e);
             }
         }
-        sock = null;
     }
     
     private final static byte fourBytes[] = new byte[4];
@@ -1139,7 +1145,7 @@ public class NIOServerCnxn extends ServerCnxn {
 
     @Override
     public InetSocketAddress getRemoteSocketAddress() {
-        if (sock == null) {
+        if (sock.isOpen() == false) {
             return null;
         }
         return (InetSocketAddress) sock.socket().getRemoteSocketAddress();

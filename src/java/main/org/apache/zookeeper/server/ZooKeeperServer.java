@@ -18,19 +18,10 @@
 
 package org.apache.zookeeper.server;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -39,13 +30,12 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Random;
-import java.util.concurrent.ConcurrentHashMap;
+
+import javax.security.sasl.SaslException;
 
 import org.apache.jute.BinaryInputArchive;
 import org.apache.jute.BinaryOutputArchive;
 import org.apache.jute.Record;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.apache.zookeeper.Environment;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.KeeperException.Code;
@@ -63,6 +53,7 @@ import org.apache.zookeeper.proto.ReplyHeader;
 import org.apache.zookeeper.proto.RequestHeader;
 import org.apache.zookeeper.proto.SetSASLResponse;
 import org.apache.zookeeper.server.DataTree.ProcessTxnResult;
+import org.apache.zookeeper.server.RequestProcessor.RequestProcessorException;
 import org.apache.zookeeper.server.ServerCnxn.CloseRequestException;
 import org.apache.zookeeper.server.SessionTracker.Session;
 import org.apache.zookeeper.server.SessionTracker.SessionExpirer;
@@ -72,9 +63,9 @@ import org.apache.zookeeper.server.persistence.FileTxnSnapLog;
 import org.apache.zookeeper.server.quorum.ReadOnlyZooKeeperServer;
 import org.apache.zookeeper.txn.CreateSessionTxn;
 import org.apache.zookeeper.txn.TxnHeader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import org.apache.zookeeper.server.util.ZxidUtils;
-import javax.security.sasl.SaslException;
 
 /**
  * This class implements a simple standalone ZooKeeperServer. It sets up the
@@ -256,7 +247,31 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
      *  Restore sessions and data
      */
     public void loadData() throws IOException, InterruptedException {
-        setZxid(zkDb.loadDataBase());
+        /*
+         * When a new leader starts executing Leader#lead, it 
+         * invokes this method. The database, however, has been
+         * initialized before running leader election so that
+         * the server could pick its zxid for its initial vote.
+         * It does it by invoking QuorumPeer#getLastLoggedZxid.
+         * Consequently, we don't need to initialize it once more
+         * and avoid the penalty of loading it a second time. Not 
+         * reloading it is particularly important for applications
+         * that host a large database.
+         * 
+         * The following if block checks whether the database has
+         * been initialized or not. Note that this method is
+         * invoked by at least one other method: 
+         * ZooKeeperServer#startdata.
+         *  
+         * See ZOOKEEPER-1642 for more detail.
+         */
+        if(zkDb.isInitialized()){
+            setZxid(zkDb.getDataTreeLastProcessedZxid());
+        }
+        else {
+            setZxid(zkDb.loadDataBase());
+        }
+        
         // Clean up dead sessions
         LinkedList<Long> deadSessions = new LinkedList<Long>();
         for (Long session : zkDb.getSessions()) {
@@ -269,12 +284,10 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
             // XXX: Is lastProcessedZxid really the best thing to use?
             killSession(session, zkDb.getDataTreeLastProcessedZxid());
         }
-
-        // Make a clean snapshot
-        takeSnapshot();
     }
 
     public void takeSnapshot(){
+
         try {
             txnLogFactory.save(zkDb.getDataTree(), zkDb.getSessionWithTimeOuts());
         } catch (IOException e) {
@@ -606,9 +619,9 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
                         + " with negotiated timeout " + cnxn.getSessionTimeout()
                         + " for client "
                         + cnxn.getRemoteSocketAddress());
+                cnxn.enableRecv();
             }
                 
-            cnxn.enableRecv();
         } catch (Exception e) {
             LOG.warn("Exception while establishing session, closing", e);
             cnxn.close();
@@ -659,20 +672,29 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
                     incInProcess();
                 }
             } else {
-                LOG.warn("Dropping packet at server of type " + si.type);
-                // if invalid packet drop the packet.
+                LOG.warn("Received packet at server of unknown type " + si.type);
+                new UnimplementedRequestProcessor().processRequest(si);
             }
         } catch (MissingSessionException e) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Dropping request: " + e.getMessage());
             }
+        } catch (RequestProcessorException e) {
+            LOG.error("Unable to process request:" + e.getMessage(), e);
         }
     }
 
     public static int getSnapCount() {
         String sc = System.getProperty("zookeeper.snapCount");
         try {
-            return Integer.parseInt(sc);
+            int snapCount = Integer.parseInt(sc);
+
+            // snapCount must be 2 or more. See org.apache.zookeeper.server.SyncRequestProcessor
+            if( snapCount < 2 ) {
+                LOG.warn("SnapCount should be 2 or more. Now, snapCount is reset to 2");
+                snapCount = 2;
+            }
+            return snapCount;
         } catch (Exception e) {
             return 100000;
         }
@@ -770,6 +792,14 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
 
     public void dumpEphemerals(PrintWriter pwriter) {
     	zkDb.dumpEphemerals(pwriter);
+    }
+    
+    /**
+     * return the total number of client connections that are alive
+     * to this server
+     */
+    public int getNumAliveConnections() {
+        return serverCnxnFactory.getNumAliveConnections();
     }
     
     public void processConnectRequest(ServerCnxn cnxn, ByteBuffer incomingBuffer) throws IOException {

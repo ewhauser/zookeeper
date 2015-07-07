@@ -32,13 +32,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 
-import org.apache.zookeeper.Login;
-import org.apache.zookeeper.server.auth.SaslServerCallbackHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import javax.security.auth.login.Configuration;
-import javax.security.auth.login.LoginException;
 
 public class NIOServerCnxnFactory extends ServerCnxnFactory implements Runnable {
     private static final Logger LOG = LoggerFactory.getLogger(NIOServerCnxnFactory.class);
@@ -72,12 +67,10 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory implements Runnable 
     */
     final ByteBuffer directBuffer = ByteBuffer.allocateDirect(64 * 1024);
 
-    final HashSet<ServerCnxn> cnxns = new HashSet<ServerCnxn>();
     final HashMap<InetAddress, Set<NIOServerCnxn>> ipMap =
         new HashMap<InetAddress, Set<NIOServerCnxn>>( );
 
     int maxClientCnxns = 60;
-
 
     /**
      * Construct a new server connection factory which will accept an unlimited number
@@ -91,17 +84,8 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory implements Runnable 
     Thread thread;
     @Override
     public void configure(InetSocketAddress addr, int maxcc) throws IOException {
-        if (System.getProperty("java.security.auth.login.config") != null) {
-            try {
-                saslServerCallbackHandler = new SaslServerCallbackHandler(Configuration.getConfiguration());
-                login = new Login("Server",saslServerCallbackHandler);
-                login.startThreadIfNeeded();
-            }
-            catch (LoginException e) {
-                throw new IOException("Could not configure server because SASL configuration did not allow the "
-                  + " Zookeeper server to authenticate itself properly: " + e);
-            }
-        }
+        configureSaslLogin();
+
         thread = new Thread(this, "NIOServerCxn.Factory:" + addr);
         thread.setDaemon(true);
         maxClientCnxns = maxcc;
@@ -322,5 +306,4 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory implements Runnable 
     public Iterable<ServerCnxn> getConnections() {
         return cnxns;
     }
-
 }

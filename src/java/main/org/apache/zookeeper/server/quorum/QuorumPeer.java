@@ -21,7 +21,6 @@ import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
@@ -36,6 +35,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.zookeeper.common.AtomicFileOutputStream;
 import org.apache.zookeeper.jmx.MBeanRegistry;
 import org.apache.zookeeper.jmx.ZKMBeanInfo;
 import org.apache.zookeeper.server.ServerCnxnFactory;
@@ -204,6 +204,11 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
      * This is who I think the leader currently is.
      */
     volatile private Vote currentVote;
+    
+    /**
+     * ... and its counterpart for backward compatibility
+     */
+    volatile private Vote bcVote;
         
     public synchronized Vote getCurrentVote(){
         return currentVote;
@@ -211,8 +216,20 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
        
     public synchronized void setCurrentVote(Vote v){
         currentVote = v;
-    }    
+    }
+    
+    synchronized Vote getBCVote() {
+        if (bcVote == null) {
+            return currentVote;
+        } else {
+            return bcVote;
+        }
+    }
 
+    synchronized void setBCVote(Vote v) {
+        bcVote = v;
+    }
+    
     volatile boolean running = true;
 
     /**
@@ -242,11 +259,23 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
      * an acknowledgment
      */
     protected int syncLimit;
+    
+    /**
+     * Enables/Disables sync request processor. This option is enabled
+     * by default and is to be used with observers.
+     */
+    protected boolean syncEnabled = true;
 
     /**
      * The current tick
      */
-    protected int tick;
+    protected volatile int tick;
+
+    /**
+     * Whether or not to listen on all IPs for the two quorum ports
+     * (broadcast and fast leader election).
+     */
+    protected boolean quorumListenOnAllIPs = false;
 
     /**
      * @deprecated As of release 3.4.0, this class has been deprecated, since
@@ -376,13 +405,14 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
             long myid, int tickTime, int initLimit, int syncLimit,
             ServerCnxnFactory cnxnFactory) throws IOException {
         this(quorumPeers, dataDir, dataLogDir, electionType, myid, tickTime, 
-        		initLimit, syncLimit, cnxnFactory, 
+        		initLimit, syncLimit, false, cnxnFactory, 
         		new QuorumMaj(countParticipants(quorumPeers)));
     }
     
     public QuorumPeer(Map<Long, QuorumServer> quorumPeers, File dataDir,
             File dataLogDir, int electionType,
             long myid, int tickTime, int initLimit, int syncLimit,
+            boolean quorumListenOnAllIPs,
             ServerCnxnFactory cnxnFactory, 
             QuorumVerifier quorumConfig) throws IOException {
         this();
@@ -393,6 +423,7 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
         this.tickTime = tickTime;
         this.initLimit = initLimit;
         this.syncLimit = syncLimit;        
+        this.quorumListenOnAllIPs = quorumListenOnAllIPs;
         this.logFactory = new FileTxnSnapLog(dataLogDir, dataDir);
         this.zkDb = new ZKDatabase(this.logFactory);
         if(quorumConfig == null)
@@ -412,7 +443,9 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
         super.start();
     }
 
-	private void loadDataBase() {
+    private void loadDataBase() {
+        File updating = new File(getTxnFactory().getSnapDir(),
+                                 UPDATING_EPOCH_FILENAME);
 		try {
             zkDb.loadDataBase();
 
@@ -421,6 +454,17 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
     		long epochOfZxid = ZxidUtils.getEpochFromZxid(lastProcessedZxid);
             try {
             	currentEpoch = readLongFromFile(CURRENT_EPOCH_FILENAME);
+                if (epochOfZxid > currentEpoch && updating.exists()) {
+                    LOG.info("{} found. The server was terminated after " +
+                             "taking a snapshot but before updating current " +
+                             "epoch. Setting current epoch to {}.",
+                             UPDATING_EPOCH_FILENAME, epochOfZxid);
+                    setCurrentEpoch(epochOfZxid);
+                    if (!updating.delete()) {
+                        throw new IOException("Failed to delete " +
+                                              updating.toString());
+                    }
+                }
             } catch(FileNotFoundException e) {
             	// pick a reasonable epoch number
             	// this should only happen once when moving to a
@@ -444,7 +488,7 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
             	LOG.info(ACCEPTED_EPOCH_FILENAME
             	        + " not found! Creating with a reasonable default of {}. This should only happen when you are upgrading your installation",
             	        acceptedEpoch);
-            	writeLongToFile(CURRENT_EPOCH_FILENAME, acceptedEpoch);
+            	writeLongToFile(ACCEPTED_EPOCH_FILENAME, acceptedEpoch);
             }
             if (acceptedEpoch < currentEpoch) {
             	throw new IOException("The current epoch, " + ZxidUtils.zxidToString(currentEpoch) + " is less than the accepted epoch, " + ZxidUtils.zxidToString(acceptedEpoch));
@@ -515,7 +559,7 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
         throws IOException
     {
         this(quorumPeers, snapDir, logDir, electionAlg,
-                myid,tickTime, initLimit,syncLimit,
+                myid,tickTime, initLimit,syncLimit, false,
                 ServerCnxnFactory.createFactory(new InetSocketAddress(clientPort), -1),
                 new QuorumMaj(countParticipants(quorumPeers)));
     }
@@ -531,7 +575,7 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
         throws IOException
     {
         this(quorumPeers, snapDir, logDir, electionAlg,
-                myid,tickTime, initLimit,syncLimit,
+                myid,tickTime, initLimit,syncLimit, false,
                 ServerCnxnFactory.createFactory(new InetSocketAddress(clientPort), -1),
                 quorumConfig);
     }
@@ -701,6 +745,7 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
                         };
                         try {
                             roZkMgr.start();
+                            setBCVote(null);
                             setCurrentVote(makeLEStrategy().lookForLeader());
                         } catch (Exception e) {
                             LOG.warn("Unexpected exception",e);
@@ -713,6 +758,7 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
                         }
                     } else {
                         try {
+                            setBCVote(null);
                             setCurrentVote(makeLEStrategy().lookForLeader());
                         } catch (Exception e) {
                             LOG.warn("Unexpected exception", e);
@@ -855,12 +901,8 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
         List<String> l = new ArrayList<String>();
         synchronized (this) {
             if (leader != null) {
-                synchronized (leader.learners) {
-                    for (LearnerHandler fh :
-                        leader.learners)
-                    {
-                        if (fh.getSocket() == null)
-                            continue;
+                for (LearnerHandler fh : leader.getLearners()) {
+                    if (fh.getSocket() != null) {
                         String s = fh.getSocket().getRemoteSocketAddress().toString();
                         if (leader.isLearnerSynced(fh))
                             s += "*";
@@ -1005,6 +1047,35 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
     public void setSyncLimit(int syncLimit) {
         this.syncLimit = syncLimit;
     }
+    
+    
+    /**
+     * The syncEnabled can also be set via a system property.
+     */
+    public static final String SYNC_ENABLED = "zookeeper.observer.syncEnabled";
+    
+    /**
+     * Return syncEnabled.
+     * 
+     * @return
+     */
+    public boolean getSyncEnabled() {
+        if (System.getProperty(SYNC_ENABLED) != null) {
+            LOG.info(SYNC_ENABLED + "=" + Boolean.getBoolean(SYNC_ENABLED));   
+            return Boolean.getBoolean(SYNC_ENABLED);
+        } else {        
+            return syncEnabled;
+        }
+    }
+    
+    /**
+     * Set syncEnabled.
+     * 
+     * @param syncEnabled
+     */
+    public void setSyncEnabled(boolean syncEnabled) {
+        this.syncEnabled = syncEnabled;
+    }
 
     /**
      * Gets the election type
@@ -1018,6 +1089,14 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
      */
     public void setElectionType(int electionType) {
         this.electionType = electionType;
+    }
+
+    public boolean getQuorumListenOnAllIPs() {
+        return quorumListenOnAllIPs;
+    }
+
+    public void setQuorumListenOnAllIPs(boolean quorumListenOnAllIPs) {
+        this.quorumListenOnAllIPs = quorumListenOnAllIPs;
     }
 
     public ServerCnxnFactory getCnxnFactory() {
@@ -1090,17 +1169,39 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
 
 	public static final String ACCEPTED_EPOCH_FILENAME = "acceptedEpoch";
 
+    public static final String UPDATING_EPOCH_FILENAME = "updatingEpoch";
+
+	/**
+	 * Write a long value to disk atomically. Either succeeds or an exception
+	 * is thrown.
+	 * @param name file name to write the long to
+	 * @param value the long value to write to the named file
+	 * @throws IOException if the file cannot be written atomically
+	 */
     private void writeLongToFile(String name, long value) throws IOException {
-    	File file = new File(logFactory.getSnapDir(), name);
-		FileOutputStream out = new FileOutputStream(file);
-		BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(out));
-    	try {
-    		bw.write(Long.toString(value));
-    		bw.flush();
-    		out.getFD().sync();
-    	} finally {
-    		bw.close();
-    	}
+        File file = new File(logFactory.getSnapDir(), name);
+        AtomicFileOutputStream out = new AtomicFileOutputStream(file);
+        BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(out));
+        boolean aborted = false;
+        try {
+            bw.write(Long.toString(value));
+            bw.flush();
+            
+            out.flush();
+        } catch (IOException e) {
+            LOG.error("Failed to write new file " + file, e);
+            // worst case here the tmp file/resources(fd) are not cleaned up
+            //   and the caller will be notified (IOException)
+            aborted = true;
+            out.abort();
+            throw e;
+        } finally {
+            if (!aborted) {
+                // if the close operation (rename) fails we'll get notified.
+                // worst case the tmp file may still exist
+                out.close();
+            }
+        }
     }
 
     public long getCurrentEpoch() throws IOException {
@@ -1127,4 +1228,22 @@ public class QuorumPeer extends Thread implements QuorumStats.Provider {
 		acceptedEpoch = e;
 		writeLongToFile(ACCEPTED_EPOCH_FILENAME, e);
 	}
+
+    /**
+     * Updates leader election info to avoid inconsistencies when
+     * a new server tries to join the ensemble.
+     * See ZOOKEEPER-1732 for more info.
+     */
+    protected void updateElectionVote(long newEpoch) {
+        Vote currentVote = getCurrentVote();
+        setBCVote(currentVote);
+        if (currentVote != null) {
+            setCurrentVote(new Vote(currentVote.getId(),
+                currentVote.getZxid(),
+                currentVote.getElectionEpoch(),
+                newEpoch,
+                currentVote.getState()));
+        }
+    }
+
 }

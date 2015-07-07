@@ -28,6 +28,7 @@ import org.apache.zookeeper.server.Request;
 import org.apache.zookeeper.server.RequestProcessor;
 import org.apache.zookeeper.server.ZooKeeperServer;
 import org.apache.zookeeper.server.ZooTrace;
+import org.apache.zookeeper.server.quorum.Leader.XidRolloverException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,7 +80,8 @@ public class ReadOnlyRequestProcessor extends Thread implements RequestProcessor
                 case OpCode.delete:
                 case OpCode.setData:
                 case OpCode.setACL:
-
+                case OpCode.multi:
+                case OpCode.check:
                     ReplyHeader hdr = new ReplyHeader(request.cxid, zks.getZKDatabase()
                             .getDataTreeLastProcessedZxid(), Code.NOTREADONLY.intValue());
                     try {
@@ -97,6 +99,13 @@ public class ReadOnlyRequestProcessor extends Thread implements RequestProcessor
             }
         } catch (InterruptedException e) {
             LOG.error("Unexpected interruption", e);
+        } catch (RequestProcessorException e) {
+            if (e.getCause() instanceof XidRolloverException) {
+                LOG.info(e.getCause().getMessage());
+            }
+            LOG.error("Unexpected exception", e);
+        } catch (Exception e) {
+            LOG.error("Unexpected exception", e);
         }
         LOG.info("ReadOnlyRequestProcessor exited loop!");
     }

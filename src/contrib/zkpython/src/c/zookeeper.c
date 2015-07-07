@@ -52,6 +52,8 @@ PyObject *err_to_exception(int errcode) {
   switch (errcode) {
   case ZSYSTEMERROR:
     return SystemErrorException;
+  case ZINVALIDSTATE:
+    return InvalidStateException;
   case ZRUNTIMEINCONSISTENCY:
     return RuntimeInconsistencyException;
   case ZDATAINCONSISTENCY:
@@ -90,7 +92,10 @@ PyObject *err_to_exception(int errcode) {
     return InvalidCallbackException;
   case ZSESSIONMOVED:
     return SessionMovedException;
-      
+  case ZCLOSING:
+    return ClosingException;
+  case ZNOTHING:
+    return NothingException;
   case ZOK:
   default:
     return NULL;
@@ -270,7 +275,11 @@ PyObject *build_string_vector(const struct String_vector *sv)
   if (ret) {
     int i;
     for (i=0;i<sv->count;++i)  {
+#if PY_MAJOR_VERSION >= 3
+      PyObject *s = PyUnicode_FromString(sv->data[i]);
+#else
       PyObject *s = PyString_FromString(sv->data[i]);
+#endif
       if (!s) {
         if (ret != Py_None) {
           Py_DECREF(ret);
@@ -376,9 +385,15 @@ int parse_acls(struct ACL_vector *acls, PyObject *pyacls)
     a = PyList_GetItem(pyacls, i);
     // a is now a dictionary
     PyObject *perms = PyDict_GetItemString( a, "perms" );
+#if PY_MAJOR_VERSION >= 3
+    acls->data[i].perms = (int32_t)(PyLong_AsLong(perms));
+    acls->data[i].id.id = strdup( PyUnicode_AsUnicode( PyDict_GetItemString( a, "id" ) ) );
+    acls->data[i].id.scheme = strdup( PyUnicode_AsUnicode( PyDict_GetItemString( a, "scheme" ) ) );
+#else
     acls->data[i].perms = (int32_t)(PyInt_AsLong(perms));
     acls->data[i].id.id = strdup( PyString_AsString( PyDict_GetItemString( a, "id" ) ) );
     acls->data[i].id.scheme = strdup( PyString_AsString( PyDict_GetItemString( a, "scheme" ) ) );
+#endif
   }
   return 1;
 }
@@ -436,7 +451,8 @@ void watcher_dispatch(zhandle_t *zzh, int type, int state,
   if (PyObject_CallObject((PyObject*)callback, arglist) == NULL) {
     PyErr_Print();
   }
-  if (pyw->permanent == 0 && (type != ZOO_SESSION_EVENT || is_unrecoverable(zzh))) {
+  Py_DECREF(arglist);
+  if (pyw->permanent == 0 && (type != ZOO_SESSION_EVENT || state < 0)) {
     free_pywatcher(pyw);
   }
   PyGILState_Release(gstate);
@@ -457,6 +473,7 @@ void void_completion_dispatch(int rc, const void *data)
   PyObject *arglist = Py_BuildValue("(i,i)", pyw->zhandle, rc);
   if (PyObject_CallObject((PyObject*)callback, arglist) == NULL)
     PyErr_Print();
+  Py_DECREF(arglist);
   free_pywatcher(pyw);
   PyGILState_Release(gstate);
 }
@@ -474,9 +491,9 @@ void stat_completion_dispatch(int rc, const struct Stat *stat, const void *data)
   PyObject *pystat = build_stat(stat);
   PyObject *arglist = Py_BuildValue("(i,i,O)", pyw->zhandle,rc, pystat);
   Py_DECREF(pystat);
-
   if (PyObject_CallObject((PyObject*)callback, arglist) == NULL)
     PyErr_Print();
+  Py_DECREF(arglist);
   free_pywatcher(pyw);
   PyGILState_Release(gstate);
 }
@@ -498,6 +515,7 @@ void data_completion_dispatch(int rc, const char *value, int value_len, const st
 
   if (PyObject_CallObject((PyObject*)callback, arglist) == NULL)
     PyErr_Print();
+  Py_DECREF(arglist);
   free_pywatcher(pyw);
   PyGILState_Release(gstate);
 }
@@ -518,6 +536,7 @@ void strings_completion_dispatch(int rc, const struct String_vector *strings, co
       PyObject *arglist = Py_BuildValue("(i,i,O)", pyw->zhandle, rc, pystrings);   
       if (arglist == NULL || PyObject_CallObject((PyObject*)callback, arglist) == NULL)
         PyErr_Print();
+      Py_DECREF(arglist);
     }
   else
     PyErr_Print();
@@ -540,6 +559,7 @@ void string_completion_dispatch(int rc, const char *value, const void *data)
   PyObject *arglist = Py_BuildValue("(i,i,s)", pyw->zhandle,rc, value);
   if (PyObject_CallObject((PyObject*)callback, arglist) == NULL)
     PyErr_Print();
+  Py_DECREF(arglist);
   free_pywatcher(pyw);
   PyGILState_Release(gstate);
 }
@@ -565,6 +585,7 @@ void acl_completion_dispatch(int rc, struct ACL_vector *acl, struct Stat *stat, 
   if (PyObject_CallObject((PyObject*)callback, arglist) == NULL) {
     PyErr_Print();
   }
+  Py_DECREF(arglist);
   free_pywatcher(pyw);
   PyGILState_Release(gstate);
 }
@@ -1421,7 +1442,14 @@ PyObject *pyzoo_set_log_stream(PyObject *self, PyObject *args)
     PyErr_SetString(PyExc_ValueError, "Must supply a Python object to set_log_stream");
     return NULL;
   }
-  if (!PyFile_Check(pystream)) {
+  
+#if PY_MAJOR_VERSION >= 3
+  extern PyTypeObject PyIOBase_Type;
+  if (!PyObject_IsInstance(pystream, (PyObject *)&PyIOBase_Type)) {
+#else
+  if(!PyFile_Check(pystream)) {
+#endif
+
     PyErr_SetString(PyExc_ValueError, "Must supply a file object to set_log_stream");
     return NULL;
   }
@@ -1432,7 +1460,14 @@ PyObject *pyzoo_set_log_stream(PyObject *self, PyObject *args)
 
   log_stream = pystream;
   Py_INCREF(log_stream);
-  zoo_set_log_stream(PyFile_AsFile(log_stream));
+
+#if PY_MAJOR_VERSION >= 3
+  int fd = PyObject_AsFileDescriptor(log_stream);
+  FILE *fp = fdopen(fd, "w");
+#else 
+  FILE *fp = PyFile_AsFile(log_stream);
+#endif
+  zoo_set_log_stream(fp);
 
   Py_INCREF(Py_None);
   return Py_None;
@@ -1494,6 +1529,20 @@ static PyMethodDef ZooKeeperMethods[] = {
   {NULL, NULL}
 };
 
+#if PY_MAJOR_VERSION >= 3 
+static struct PyModuleDef zookeeper_moddef = {
+  PyModuleDef_HEAD_INIT,
+  "zookeeper",
+  NULL,
+  0,
+  ZooKeeperMethods,
+  0,
+  0,
+  0,
+  0
+};
+#endif
+
 #define ADD_INTCONSTANT(x) PyModule_AddIntConstant(module, #x, ZOO_##x)
 #define ADD_INTCONSTANTZ(x) PyModule_AddIntConstant(module, #x, Z##x)
 
@@ -1501,10 +1550,18 @@ static PyMethodDef ZooKeeperMethods[] = {
   Py_INCREF(x);                                                         \
   PyModule_AddObject(module, #x, x);
 
-
+#if PY_MAJOR_VERSION >= 3
+PyMODINIT_FUNC PyInit_zookeeper(void) {
+#else
 PyMODINIT_FUNC initzookeeper(void) {
+#endif
   PyEval_InitThreads();
-  PyObject *module = Py_InitModule("zookeeper", ZooKeeperMethods );
+
+#if PY_MAJOR_VERSION >= 3
+  PyObject *module = PyModule_Create(&zookeeper_moddef);
+#else
+  PyObject *module = Py_InitModule("zookeeper", ZooKeeperMethods);
+#endif
   if (init_zhandles(32) == 0) {
     return; // TODO: Is there any way to raise an exception here?
   }
@@ -1600,4 +1657,8 @@ PyMODINIT_FUNC initzookeeper(void) {
   ADD_EXCEPTION(ClosingException);
   ADD_EXCEPTION(NothingException);
   ADD_EXCEPTION(SessionMovedException);
+
+#if PY_MAJOR_VERSION >= 3
+  return module;
+#endif
 }

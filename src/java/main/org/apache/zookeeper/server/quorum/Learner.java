@@ -23,6 +23,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.InetSocketAddress;
@@ -392,9 +393,28 @@ public class Learner {
                     }
                     break;
                 case Leader.INFORM:
-                    TxnHeader hdr = new TxnHeader();
-                    Record txn = SerializeUtils.deserializeTxn(qp.getData(), hdr);
-                    zk.processTxn(hdr, txn);
+                    /*
+                     * Only observer get this type of packet. We treat this
+                     * as receiving PROPOSAL and COMMMIT.
+                     */
+                    PacketInFlight packet = new PacketInFlight();
+                    packet.hdr = new TxnHeader();
+                    packet.rec = SerializeUtils.deserializeTxn(qp.getData(), packet.hdr);
+                    // Log warning message if txn comes out-of-order
+                    if (packet.hdr.getZxid() != lastQueued + 1) {
+                        LOG.warn("Got zxid 0x"
+                                + Long.toHexString(packet.hdr.getZxid())
+                                + " expected 0x"
+                                + Long.toHexString(lastQueued + 1));
+                    }
+                    lastQueued = packet.hdr.getZxid();
+                    if (!snapshotTaken) {
+                        // Apply to db directly if we haven't taken the snapshot
+                        zk.processTxn(packet.hdr, packet.rec);
+                    } else {
+                        packetsNotCommitted.add(packet);
+                        packetsCommitted.add(qp.getZxid());
+                    }
                     break;
                 case Leader.UPTODATE:
                     if (!snapshotTaken) { // true for the pre v1.0 case
@@ -404,8 +424,22 @@ public class Learner {
                     self.cnxnFactory.setZooKeeperServer(zk);                
                     break outerLoop;
                 case Leader.NEWLEADER: // it will be NEWLEADER in v1.0
+                    // Create updatingEpoch file and remove it after current
+                    // epoch is set. QuorumPeer.loadDataBase() uses this file to
+                    // detect the case where the server was terminated after
+                    // taking a snapshot but before setting the current epoch.
+                    File updating = new File(self.getTxnFactory().getSnapDir(),
+                                        QuorumPeer.UPDATING_EPOCH_FILENAME);
+                    if (!updating.exists() && !updating.createNewFile()) {
+                        throw new IOException("Failed to create " +
+                                              updating.toString());
+                    }
                     zk.takeSnapshot();
                     self.setCurrentEpoch(newEpoch);
+                    if (!updating.delete()) {
+                        throw new IOException("Failed to delete " +
+                                              updating.toString());
+                    }
                     snapshotTaken = true;
                     writePacket(new QuorumPacket(Leader.ACK, newLeaderZxid, null, null), true);
                     break;
@@ -416,6 +450,15 @@ public class Learner {
         writePacket(ack, true);
         sock.setSoTimeout(self.tickTime * self.syncLimit);
         zk.startup();
+        /*
+         * Update the election vote here to ensure that all members of the
+         * ensemble report the same vote to new servers that start up and
+         * send leader election notifications to the ensemble.
+         * 
+         * @see https://issues.apache.org/jira/browse/ZOOKEEPER-1732
+         */
+        self.updateElectionVote(newEpoch);
+
         // We need to log the stuff that came in between the snapshot and the uptodate
         if (zk instanceof FollowerZooKeeperServer) {
             FollowerZooKeeperServer fzk = (FollowerZooKeeperServer)zk;
@@ -425,6 +468,30 @@ public class Learner {
             for(Long zxid: packetsCommitted) {
                 fzk.commit(zxid);
             }
+        } else if (zk instanceof ObserverZooKeeperServer) {
+            // Similar to follower, we need to log requests between the snapshot
+            // and UPTODATE
+            ObserverZooKeeperServer ozk = (ObserverZooKeeperServer) zk;
+            for (PacketInFlight p : packetsNotCommitted) {
+                Long zxid = packetsCommitted.peekFirst();
+                if (p.hdr.getZxid() != zxid) {
+                    // log warning message if there is no matching commit
+                    // old leader send outstanding proposal to observer
+                    LOG.warn("Committing " + Long.toHexString(zxid)
+                            + ", but next proposal is "
+                            + Long.toHexString(p.hdr.getZxid()));
+                    continue;
+                }
+                packetsCommitted.remove();
+                Request request = new Request(null, p.hdr.getClientId(),
+                        p.hdr.getCxid(), p.hdr.getType(), null, null);
+                request.txn = p.rec;
+                request.hdr = p.hdr;
+                ozk.commitRequest(request);
+            }
+        } else {
+            // New server type need to handle in-flight packets
+            throw new UnsupportedOperationException("Unknown server type");
         }
     }
     

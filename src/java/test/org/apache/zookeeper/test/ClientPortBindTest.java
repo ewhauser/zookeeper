@@ -62,8 +62,6 @@ public class ClientPortBindTest extends ZKTestCase implements Watcher {
                 Enumeration<InetAddress> addrs = i.getInetAddresses();
                 if (addrs.hasMoreElements()) {
                     bindAddress = addrs.nextElement().getHostAddress();
-                    // handle the ipv6 scope_id - ie remove it
-                    bindAddress = bindAddress.split("%")[0];
                 }
             }
         }
@@ -101,6 +99,7 @@ public class ClientPortBindTest extends ZKTestCase implements Watcher {
             zk.close();
         } finally {
             f.shutdown();
+            zks.shutdown();
 
             Assert.assertTrue("waiting for server down",
                        ClientBase.waitForServerDown(HOSTPORT,

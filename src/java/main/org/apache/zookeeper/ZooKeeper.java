@@ -23,6 +23,7 @@ import org.apache.zookeeper.OpResult.ErrorResult;
 import org.apache.zookeeper.client.ConnectStringParser;
 import org.apache.zookeeper.client.HostProvider;
 import org.apache.zookeeper.client.StaticHostProvider;
+import org.apache.zookeeper.client.ZooKeeperSaslClient;
 import org.apache.zookeeper.common.PathUtils;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
@@ -92,6 +93,10 @@ public class ZooKeeper {
         //Keep these two lines together to keep the initialization order explicit
         LOG = LoggerFactory.getLogger(ZooKeeper.class);
         Environment.logEnv("Client environment:", LOG);
+    }
+
+    public ZooKeeperSaslClient getSaslClient() {
+        return cnxn.zooKeeperSaslClient;
     }
 
     private final ZKWatchManager watchManager = new ZKWatchManager();
@@ -894,11 +899,30 @@ public class ZooKeeper {
      * partially succeeded if this exception is thrown.
      * @throws KeeperException If the operation could not be completed
      * due to some error in doing one of the specified ops.
+     * @throws IllegalArgumentException if an invalid path is specified
      *
      * @since 3.4.0
      */
     public List<OpResult> multi(Iterable<Op> ops) throws InterruptedException, KeeperException {
-        return multiInternal(new MultiTransactionRecord(ops));
+        for (Op op : ops) {
+            op.validate();
+        }
+        // reconstructing transaction with the chroot prefix
+        List<Op> transaction = new ArrayList<Op>();
+        for (Op op : ops) {
+            transaction.add(withRootPrefix(op));
+        }
+        return multiInternal(new MultiTransactionRecord(transaction));
+    }
+
+    private Op withRootPrefix(Op op) {
+        if (null != op.getPath()) {
+            final String serverPath = prependChroot(op.getPath());
+            if (!op.getPath().equals(serverPath)) {
+                return op.withChroot(serverPath);
+            }
+        }
+        return op;
     }
 
     protected List<OpResult> multiInternal(MultiTransactionRecord request)
@@ -1365,7 +1389,7 @@ public class ZooKeeper {
         SetACLRequest request = new SetACLRequest();
         request.setPath(serverPath);
         if (acl != null && acl.size() == 0) {
-            throw new KeeperException.InvalidACLException();
+            throw new KeeperException.InvalidACLException(clientPath);
         }
         request.setAcl(acl);
         request.setVersion(version);

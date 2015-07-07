@@ -44,16 +44,16 @@ fi
 
 # use POSTIX interface, symlink is followed automatically
 ZOOBIN="${BASH_SOURCE-$0}"
-ZOOBIN=`dirname ${ZOOBIN}`
-ZOOBINDIR=`cd ${ZOOBIN}; pwd`
+ZOOBIN="$(dirname "${ZOOBIN}")"
+ZOOBINDIR="$(cd "${ZOOBIN}"; pwd)"
 
 if [ -e "$ZOOBIN/../libexec/zkEnv.sh" ]; then
-  . "$ZOOBINDIR"/../libexec/zkEnv.sh
+  . "$ZOOBINDIR/../libexec/zkEnv.sh"
 else
-  . "$ZOOBINDIR"/zkEnv.sh
+  . "$ZOOBINDIR/zkEnv.sh"
 fi
 
-if [ "x$SERVER_JVMFLAGS" ]
+if [ "x$SERVER_JVMFLAGS"  != "x" ]
 then
     JVMFLAGS="$SERVER_JVMFLAGS $JVMFLAGS"
 fi
@@ -64,7 +64,7 @@ then
 fi
 
 # if we give a more complicated path to the config, don't screw around in $ZOOCFGDIR
-if [ "x`dirname $ZOOCFG`" != "x$ZOOCFGDIR" ]
+if [ "x$(dirname "$ZOOCFG")" != "x$ZOOCFGDIR" ]
 then
     ZOOCFG="$2"
 fi
@@ -80,15 +80,19 @@ fi
 
 echo "Using config: $ZOOCFG" >&2
 
-if [ -z $ZOOPIDFILE ]; then
-    ZOO_DATADIR=$(grep "^[[:space:]]*dataDir" "$ZOOCFG" | sed -e 's/.*=//')
+if [ -z "$ZOOPIDFILE" ]; then
+    ZOO_DATADIR="$(grep "^[[:space:]]*dataDir" "$ZOOCFG" | sed -e 's/.*=//')"
     if [ ! -d "$ZOO_DATADIR" ]; then
         mkdir -p "$ZOO_DATADIR"
     fi
     ZOOPIDFILE="$ZOO_DATADIR/zookeeper_server.pid"
 else
     # ensure it exists, otw stop will fail
-    mkdir -p $(dirname "$ZOOPIDFILE")
+    mkdir -p "$(dirname "$ZOOPIDFILE")"
+fi
+
+if [ ! -w "$ZOO_LOG_DIR" ] ; then
+mkdir -p "$ZOO_LOG_DIR"
 fi
 
 _ZOO_DAEMON_OUT="$ZOO_LOG_DIR/zookeeper.out"
@@ -96,13 +100,13 @@ _ZOO_DAEMON_OUT="$ZOO_LOG_DIR/zookeeper.out"
 case $1 in
 start)
     echo  -n "Starting zookeeper ... "
-    if [ -f $ZOOPIDFILE ]; then
-      if kill -0 `cat $ZOOPIDFILE` > /dev/null 2>&1; then
-         echo $command already running as process `cat $ZOOPIDFILE`. 
+    if [ -f "$ZOOPIDFILE" ]; then
+      if kill -0 `cat "$ZOOPIDFILE"` > /dev/null 2>&1; then
+         echo $command already running as process `cat "$ZOOPIDFILE"`. 
          exit 0
       fi
     fi
-    nohup $JAVA "-Dzookeeper.log.dir=${ZOO_LOG_DIR}" "-Dzookeeper.root.logger=${ZOO_LOG4J_PROP}" \
+    nohup "$JAVA" "-Dzookeeper.log.dir=${ZOO_LOG_DIR}" "-Dzookeeper.root.logger=${ZOO_LOG4J_PROP}" \
     -cp "$CLASSPATH" $JVMFLAGS $ZOOMAIN "$ZOOCFG" > "$_ZOO_DAEMON_OUT" 2>&1 < /dev/null &
     if [ $? -eq 0 ]
     then
@@ -120,11 +124,15 @@ start)
     fi
     ;;
 start-foreground)
-    $JAVA "-Dzookeeper.log.dir=${ZOO_LOG_DIR}" "-Dzookeeper.root.logger=${ZOO_LOG4J_PROP}" \
+    ZOO_CMD=(exec "$JAVA")
+    if [ "${ZOO_NOEXEC}" != "" ]; then
+      ZOO_CMD=("$JAVA")
+    fi
+    "${ZOO_CMD[@]}" "-Dzookeeper.log.dir=${ZOO_LOG_DIR}" "-Dzookeeper.root.logger=${ZOO_LOG4J_PROP}" \
     -cp "$CLASSPATH" $JVMFLAGS $ZOOMAIN "$ZOOCFG"
     ;;
 print-cmd)
-    echo "$JAVA -Dzookeeper.log.dir=\"${ZOO_LOG_DIR}\" -Dzookeeper.root.logger=\"${ZOO_LOG4J_PROP}\" -cp \"$CLASSPATH\" $JVMFLAGS $ZOOMAIN \"$ZOOCFG\" > \"$_ZOO_DAEMON_OUT\" 2>&1 < /dev/null"
+    echo "\"$JAVA\" -Dzookeeper.log.dir=\"${ZOO_LOG_DIR}\" -Dzookeeper.root.logger=\"${ZOO_LOG4J_PROP}\" -cp \"$CLASSPATH\" $JVMFLAGS $ZOOMAIN \"$ZOOCFG\" > \"$_ZOO_DAEMON_OUT\" 2>&1 < /dev/null"
     ;;
 stop)
     echo -n "Stopping zookeeper ... "
@@ -141,7 +149,7 @@ stop)
 upgrade)
     shift
     echo "upgrading the servers to 3.*"
-    $JAVA "-Dzookeeper.log.dir=${ZOO_LOG_DIR}" "-Dzookeeper.root.logger=${ZOO_LOG4J_PROP}" \
+    "$JAVA" "-Dzookeeper.log.dir=${ZOO_LOG_DIR}" "-Dzookeeper.root.logger=${ZOO_LOG4J_PROP}" \
     -cp "$CLASSPATH" $JVMFLAGS org.apache.zookeeper.server.upgrade.UpgradeMain ${@}
     echo "Upgrading ... "
     ;;
@@ -153,9 +161,15 @@ restart)
     ;;
 status)
     # -q is necessary on some versions of linux where nc returns too quickly, and no stat result is output
-    STAT=`$JAVA "-Dzookeeper.log.dir=${ZOO_LOG_DIR}" "-Dzookeeper.root.logger=${ZOO_LOG4J_PROP}" \
-             -cp "$CLASSPATH" $JVMFLAGS org.apache.zookeeper.client.FourLetterWordMain localhost \
-             $(grep "^[[:space:]]*clientPort" "$ZOOCFG" | sed -e 's/.*=//') srvr 2> /dev/null    \
+    clientPortAddress=`grep "^[[:space:]]*clientPortAddress[^[:alpha:]]" "$ZOOCFG" | sed -e 's/.*=//'`
+    if ! [ $clientPortAddress ]
+    then
+	clientPortAddress="localhost"
+    fi
+    clientPort=`grep "^[[:space:]]*clientPort[^[:alpha:]]" "$ZOOCFG" | sed -e 's/.*=//'`
+    STAT=`"$JAVA" "-Dzookeeper.log.dir=${ZOO_LOG_DIR}" "-Dzookeeper.root.logger=${ZOO_LOG4J_PROP}" \
+             -cp "$CLASSPATH" $JVMFLAGS org.apache.zookeeper.client.FourLetterWordMain \
+             $clientPortAddress $clientPort srvr 2> /dev/null    \
           | grep Mode`
     if [ "x$STAT" = "x" ]
     then

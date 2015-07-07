@@ -20,8 +20,11 @@ package org.apache.zookeeper;
 
 import java.io.IOException;
 import java.net.SocketAddress;
-import java.nio.channels.SocketChannel;
 import java.util.List;
+
+import org.apache.jute.Record;
+import org.apache.zookeeper.proto.ReplyHeader;
+import org.apache.zookeeper.proto.RequestHeader;
 
 public class TestableZooKeeper extends ZooKeeper {
 
@@ -47,6 +50,15 @@ public class TestableZooKeeper extends ZooKeeper {
         return super.getExistWatches();
     }
 
+    /**
+     * Cause this ZooKeeper object to disconnect from the server. It will then
+     * later attempt to reconnect.
+     */
+    public void testableConnloss() throws IOException {
+        synchronized(cnxn) {
+            cnxn.sendThread.testableCloseSocket();
+        }
+    }
 
     /**
      * Cause this ZooKeeper object to stop receiving from the ZooKeeperServer
@@ -83,5 +95,17 @@ public class TestableZooKeeper extends ZooKeeper {
 
     public SocketAddress testableRemoteSocketAddress() {
         return super.testableRemoteSocketAddress();
+    }
+
+    /**
+     * @return the last zxid as seen by the client session
+     */
+    public long testableLastZxid() {
+        return cnxn.getLastZxid();
+    }
+
+    public ReplyHeader submitRequest(RequestHeader h, Record request,
+            Record response, WatchRegistration watchRegistration) throws InterruptedException {
+        return cnxn.submitRequest(h, request, response, watchRegistration);
     }
 }

@@ -28,8 +28,6 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.Executors;
 
-import org.apache.zookeeper.Login;
-import org.apache.zookeeper.server.auth.SaslServerCallbackHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jboss.netty.bootstrap.ServerBootstrap;
@@ -47,16 +45,12 @@ import org.jboss.netty.channel.group.ChannelGroup;
 import org.jboss.netty.channel.group.DefaultChannelGroup;
 import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
 
-import javax.security.auth.login.Configuration;
-import javax.security.auth.login.LoginException;
-
 public class NettyServerCnxnFactory extends ServerCnxnFactory {
     Logger LOG = LoggerFactory.getLogger(NettyServerCnxnFactory.class);
 
     ServerBootstrap bootstrap;
     Channel parentChannel;
     ChannelGroup allChannels = new DefaultChannelGroup("zkServerCnxns");
-    HashSet<ServerCnxn> cnxns = new HashSet<ServerCnxn>();
     HashMap<InetAddress, Set<NettyServerCnxn>> ipMap =
         new HashMap<InetAddress, Set<NettyServerCnxn>>( );
     InetSocketAddress localAddress;
@@ -255,7 +249,8 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
         bootstrap.setOption("reuseAddress", true);
         // child channels
         bootstrap.setOption("child.tcpNoDelay", true);
-        bootstrap.setOption("child.soLinger", 2);
+        /* set socket linger to off, so that socket close does not block */
+        bootstrap.setOption("child.soLinger", -1);
 
         bootstrap.getPipeline().addLast("servercnxnfactory", channelHandler);
     }
@@ -266,20 +261,22 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
             LOG.debug("closeAll()");
         }
 
+        NettyServerCnxn[] allCnxns = null;
         synchronized (cnxns) {
-            // got to clear all the connections that we have in the selector
-            for (NettyServerCnxn cnxn : cnxns.toArray(new NettyServerCnxn[cnxns.size()])) {
-                try {
-                    cnxn.close();
-                } catch (Exception e) {
-                    LOG.warn("Ignoring exception closing cnxn sessionid 0x"
-                            + Long.toHexString(cnxn.getSessionId()), e);
-                }
+            allCnxns = cnxns.toArray(new NettyServerCnxn[cnxns.size()]);
+        }
+        // got to clear all the connections that we have in the selector
+        for (NettyServerCnxn cnxn : allCnxns) {
+            try {
+                cnxn.close();
+            } catch (Exception e) {
+                LOG.warn("Ignoring exception closing cnxn sessionid 0x"
+                                + Long.toHexString(cnxn.getSessionId()), e);
             }
         }
         if (LOG.isDebugEnabled()) {
-            LOG.debug("allChannels size:" + allChannels.size()
-                    + " cnxns size:" + cnxns.size());
+            LOG.debug("allChannels size:" + allChannels.size() + " cnxns size:"
+                    + allCnxns.length);
         }
     }
 
@@ -288,17 +285,18 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
         if (LOG.isDebugEnabled()) {
             LOG.debug("closeSession sessionid:0x" + sessionId);
         }
-
+        NettyServerCnxn[] allCnxns = null;
         synchronized (cnxns) {
-            for (NettyServerCnxn cnxn : cnxns.toArray(new NettyServerCnxn[cnxns.size()])) {
-                if (cnxn.getSessionId() == sessionId) {
-                    try {
-                        cnxn.close();
-                    } catch (Exception e) {
-                        LOG.warn("exception during session close", e);
-                    }
-                    break;
+            allCnxns = cnxns.toArray(new NettyServerCnxn[cnxns.size()]);
+        }
+        for (NettyServerCnxn cnxn : allCnxns) {
+            if (cnxn.getSessionId() == sessionId) {
+                try {
+                    cnxn.close();
+                } catch (Exception e) {
+                    LOG.warn("exception during session close", e);
                 }
+                break;
             }
         }
     }
@@ -307,17 +305,7 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
     public void configure(InetSocketAddress addr, int maxClientCnxns)
             throws IOException
     {
-        if (System.getProperty("java.security.auth.login.config") != null) {
-            try {
-                saslServerCallbackHandler = new SaslServerCallbackHandler(Configuration.getConfiguration());
-                login = new Login("Server",saslServerCallbackHandler);
-                login.startThreadIfNeeded();
-            }
-            catch (LoginException e) {
-                throw new IOException("Could not configure server because SASL configuration did not allow the "
-                  + " Zookeeper server to authenticate itself properly: " + e);
-            }
-        }
+        configureSaslLogin();
         localAddress = addr;
         this.maxClientCnxns = maxClientCnxns;
     }

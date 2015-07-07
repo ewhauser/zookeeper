@@ -826,6 +826,21 @@ server.3=zoo3:2888:3888</programlisting>
               to enable the auto purging. Defaults to 0.</para>
             </listitem>
           </varlistentry>
+
+          <varlistentry>
+            <term>syncEnabled</term>
+
+            <listitem>
+              <para>(Java system property: <emphasis
+              role="bold">zookeeper.observer.syncEnabled</emphasis>)</para>
+
+              <para><emphasis role="bold">New in 3.4.6, 3.5.0:</emphasis>
+              The observers now log transaction and write snapshot to disk
+              by default like the participants. This reduces the recovery time
+              of the observers on restart. Set to "false" to disable this
+              feature. Default is "true"</para>
+            </listitem>
+          </varlistentry>
         </variablelist>
       </section>
 
@@ -1109,6 +1124,20 @@ server.3=zoo3:2888:3888</programlisting>
               but opens up full access to the data tree to everyone.</para>
             </listitem>
           </varlistentry>
+
+          <varlistentry>
+            <term>quorumListenOnAllIPs</term>
+
+            <listitem>
+              <para>When set to true the ZooKeeper server will listen  
+              for connections from its peers on all available IP addresses,
+              and not only the address configured in the server list of the
+              configuration file. It affects the connections handling the 
+              ZAB protocol and the Fast Leader Election protocol. Default
+              value is <emphasis role="bold">false</emphasis>.</para>
+            </listitem>
+          </varlistentry>
+
         </variablelist>
       </section>
 

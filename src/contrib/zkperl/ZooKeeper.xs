@@ -251,13 +251,13 @@ static void _zk_release_watch(pTHX_ zk_watch_t *watch, int list)
     if (list) {
         if (watch->prev) {
             watch->prev->next = watch->next;
-            watch->prev = NULL;
         }
         if (watch->next) {
             watch->next->prev = watch->prev;
+        }
+        watch->prev = NULL;
             watch->next = NULL;
         }
-    }
 
     if (--watch->ref_count == 0) {
         _zk_destroy_watch(aTHX_ watch);
@@ -695,13 +695,13 @@ zk_acl_constant(alias=Nullch)
             alias = GvNAME(CvGV(cv));
         }
 
-        if (ix == 1 || strEQ(alias, "ZOO_OPEN_ACL_UNSAFE")) {
+        if (ix == 1 || (alias != NULL && strEQ(alias, "ZOO_OPEN_ACL_UNSAFE"))) {
             acl = ZOO_OPEN_ACL_UNSAFE;
         }
-        else if (ix == 2 || strEQ(alias, "ZOO_READ_ACL_UNSAFE")) {
+        else if (ix == 2 || (alias != NULL && strEQ(alias, "ZOO_READ_ACL_UNSAFE"))) {
             acl = ZOO_READ_ACL_UNSAFE;
         }
-        else if (ix == 3 || strEQ(alias, "ZOO_CREATOR_ALL_ACL")) {
+        else if (ix == 3 || (alias != NULL && strEQ(alias, "ZOO_CREATOR_ALL_ACL"))) {
             acl = ZOO_CREATOR_ALL_ACL;
         }
         else {

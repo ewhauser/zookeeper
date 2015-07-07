@@ -59,6 +59,7 @@ public class QuorumPeerConfig {
     protected int syncLimit;
     protected int electionAlg = 3;
     protected int electionPort = 2182;
+    protected boolean quorumListenOnAllIPs = false;
     protected final HashMap<Long,QuorumServer> servers =
         new HashMap<Long, QuorumServer>();
     protected final HashMap<Long,QuorumServer> observers =
@@ -71,6 +72,7 @@ public class QuorumPeerConfig {
     protected QuorumVerifier quorumVerifier;
     protected int snapRetainCount = 3;
     protected int purgeInterval = 0;
+    protected boolean syncEnabled = true;
 
     protected LearnerType peerType = LearnerType.PARTICIPANT;
     
@@ -157,6 +159,8 @@ public class QuorumPeerConfig {
                 syncLimit = Integer.parseInt(value);
             } else if (key.equals("electionAlg")) {
                 electionAlg = Integer.parseInt(value);
+            } else if (key.equals("quorumListenOnAllIPs")) {
+                quorumListenOnAllIPs = Boolean.parseBoolean(value);
             } else if (key.equals("peerType")) {
                 if (value.toLowerCase().equals("observer")) {
                     peerType = LearnerType.OBSERVER;
@@ -166,6 +170,8 @@ public class QuorumPeerConfig {
                 {
                     throw new ConfigException("Unrecognised peertype: " + value);
                 }
+            } else if (key.equals( "syncEnabled" )) {
+                syncEnabled = Boolean.parseBoolean(value);
             } else if (key.equals("autopurge.snapRetainCount")) {
                 snapRetainCount = Integer.parseInt(value);
             } else if (key.equals("autopurge.purgeInterval")) {
@@ -392,6 +398,10 @@ public class QuorumPeerConfig {
     public int getPurgeInterval() {
         return purgeInterval;
     }
+    
+    public boolean getSyncEnabled() {
+        return syncEnabled;
+    }
 
     public QuorumVerifier getQuorumVerifier() {   
         return quorumVerifier;
@@ -407,5 +417,9 @@ public class QuorumPeerConfig {
 
     public LearnerType getPeerType() {
         return peerType;
+    }
+
+    public Boolean getQuorumListenOnAllIPs() {
+        return quorumListenOnAllIPs;
     }
 }

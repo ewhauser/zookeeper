@@ -27,11 +27,22 @@ import java.util.concurrent.LinkedBlockingQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
 /**
  * This RequestProcessor logs requests to disk. It batches the requests to do
  * the io efficiently. The request is not passed to the next RequestProcessor
  * until its log has been synced to disk.
+ *
+ * SyncRequestProcessor is used in 3 different cases
+ * 1. Leader - Sync request to disk and forward it to AckRequestProcessor which
+ *             send ack back to itself.
+ * 2. Follower - Sync request to disk and forward request to
+ *             SendAckRequestProcessor which send the packets to leader.
+ *             SendAckRequestProcessor is flushable which allow us to force
+ *             push packets to leader.
+ * 3. Observer - Sync committed request to disk (received as INFORM packet).
+ *             It never send ack back to the leader, so the nextProcessor will
+ *             be null. This change the semantic of txnlog on the observer
+ *             since it only contains committed txns.
  */
 public class SyncRequestProcessor extends Thread implements RequestProcessor {
     private static final Logger LOG = LoggerFactory.getLogger(SyncRequestProcessor.class);
@@ -54,6 +65,12 @@ public class SyncRequestProcessor extends Thread implements RequestProcessor {
      * The number of log entries to log before starting a snapshot
      */
     private static int snapCount = ZooKeeperServer.getSnapCount();
+    
+    /**
+     * The number of log entries before rolling the log, number
+     * is chosen randomly
+     */
+    private static int randRoll;
 
     private final Request requestOfDeath = Request.requestOfDeath;
 
@@ -65,7 +82,7 @@ public class SyncRequestProcessor extends Thread implements RequestProcessor {
         this.nextProcessor = nextProcessor;
         running = true;
     }
-
+    
     /**
      * used by tests to check for changing
      * snapcounts
@@ -73,6 +90,7 @@ public class SyncRequestProcessor extends Thread implements RequestProcessor {
      */
     public static void setSnapCount(int count) {
         snapCount = count;
+        randRoll = count;
     }
 
     /**
@@ -82,6 +100,18 @@ public class SyncRequestProcessor extends Thread implements RequestProcessor {
     public static int getSnapCount() {
         return snapCount;
     }
+    
+    /**
+     * Sets the value of randRoll. This method 
+     * is here to avoid a findbugs warning for
+     * setting a static variable in an instance
+     * method. 
+     * 
+     * @param roll
+     */
+    private static void setRandRoll(int roll) {
+        randRoll = roll;
+    }
 
     @Override
     public void run() {
@@ -90,7 +120,7 @@ public class SyncRequestProcessor extends Thread implements RequestProcessor {
 
             // we do this in an attempt to ensure that not all of the servers
             // in the ensemble take a snapshot at the same time
-            int randRoll = r.nextInt(snapCount/2);
+            setRandRoll(r.nextInt(snapCount/2));
             while (true) {
                 Request si = null;
                 if (toFlush.isEmpty()) {
@@ -135,9 +165,11 @@ public class SyncRequestProcessor extends Thread implements RequestProcessor {
                         // iff this is a read, and there are no pending
                         // flushes (writes), then just pass this to the next
                         // processor
-                        nextProcessor.processRequest(si);
-                        if (nextProcessor instanceof Flushable) {
-                            ((Flushable)nextProcessor).flush();
+                        if (nextProcessor != null) {
+                            nextProcessor.processRequest(si);
+                            if (nextProcessor instanceof Flushable) {
+                                ((Flushable)nextProcessor).flush();
+                            }
                         }
                         continue;
                     }
@@ -155,16 +187,20 @@ public class SyncRequestProcessor extends Thread implements RequestProcessor {
         LOG.info("SyncRequestProcessor exited!");
     }
 
-    private void flush(LinkedList<Request> toFlush) throws IOException {
+    private void flush(LinkedList<Request> toFlush)
+        throws IOException, RequestProcessorException
+    {
         if (toFlush.isEmpty())
             return;
 
         zks.getZKDatabase().commit();
         while (!toFlush.isEmpty()) {
             Request i = toFlush.remove();
-            nextProcessor.processRequest(i);
+            if (nextProcessor != null) {
+                nextProcessor.processRequest(i);
+            }
         }
-        if (nextProcessor instanceof Flushable) {
+        if (nextProcessor != null && nextProcessor instanceof Flushable) {
             ((Flushable)nextProcessor).flush();
         }
     }
@@ -176,10 +212,19 @@ public class SyncRequestProcessor extends Thread implements RequestProcessor {
             if(running){
                 this.join();
             }
+            if (!toFlush.isEmpty()) {
+                flush(toFlush);
+            }
         } catch(InterruptedException e) {
             LOG.warn("Interrupted while wating for " + this + " to finish");
+        } catch (IOException e) {
+            LOG.warn("Got IO exception during shutdown");
+        } catch (RequestProcessorException e) {
+            LOG.warn("Got request processor exception during shutdown");
         }
-        nextProcessor.shutdown();
+        if (nextProcessor != null) {
+            nextProcessor.shutdown();
+        }
     }
 
     public void processRequest(Request request) {
