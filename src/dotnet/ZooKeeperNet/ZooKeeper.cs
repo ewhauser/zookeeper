@@ -15,7 +15,7 @@
  *  limitations under the License.
  *
  */
-﻿namespace ZooKeeperNet
+namespace ZooKeeperNet
 {
     using System;
     using System.Linq;
@@ -27,6 +27,7 @@
     using Org.Apache.Zookeeper.Data;
     using Org.Apache.Zookeeper.Proto;
     using System.Threading;
+    using System.Threading.Tasks;
     using System.Text;
 
     [DebuggerDisplay("Id = {Id}")]
@@ -495,6 +496,10 @@
         /// <returns></returns>
         public string Create(string path, byte[] data, IEnumerable<ACL> acl, CreateMode createMode)
         {
+            return CreateAsync(path, data, acl, createMode).GetAwaiter().GetResult();
+        }
+        public async Task<string> CreateAsync(string path, byte[] data, IEnumerable<ACL> acl, CreateMode createMode)
+        {
             string clientPath = path;
             PathUtils.ValidatePath(clientPath, createMode.Sequential);
             if (acl != null && acl.Count() == 0)
@@ -508,7 +513,7 @@
             h.Type = (int)OpCode.Create;
             CreateRequest request = new CreateRequest(serverPath,data,acl,createMode.Flag);
             CreateResponse response = new CreateResponse();
-            ReplyHeader r = cnxn.SubmitRequest(h, request, response, null);
+            ReplyHeader r = await cnxn.SubmitRequest(h, request, response, null).ConfigureAwait(false);
             if (r.Err != 0)
             {
                 throw KeeperException.Create((KeeperException.Code)Enum.ToObject(typeof(KeeperException.Code), r.Err), clientPath);
@@ -538,6 +543,10 @@
         /// <param name="version">The version.</param>
         public void Delete(string path, int version)
         {
+            DeleteAsync(path, version).GetAwaiter().GetResult();
+        }
+        public async Task DeleteAsync(string path, int version)
+        {
             string clientPath = path;
             PathUtils.ValidatePath(clientPath);
 
@@ -560,7 +569,7 @@
             RequestHeader h = new RequestHeader();
             h.Type = (int)OpCode.Delete;
             DeleteRequest request = new DeleteRequest(serverPath,version);
-            ReplyHeader r = cnxn.SubmitRequest(h, request, null, null);
+            ReplyHeader r = await cnxn.SubmitRequest(h, request, null, null).ConfigureAwait(false);
             if (r.Err != 0)
             {
                 throw KeeperException.Create((KeeperException.Code)Enum.ToObject(typeof(KeeperException.Code), r.Err), clientPath);
@@ -581,6 +590,10 @@
         /// <returns>the stat of the node of the given path; return null if no such a node exists.</returns>
         public Stat Exists(string path, IWatcher watcher)
         {
+            return ExistsAsync(path, watcher).GetAwaiter().GetResult();
+        }
+        public async Task<Stat> ExistsAsync(string path, IWatcher watcher)
+        {
             string clientPath = path;
             PathUtils.ValidatePath(clientPath);
 
@@ -597,7 +610,7 @@
             h.Type = (int)OpCode.Exists;
             ExistsRequest request = new ExistsRequest(serverPath, watcher != null);
             SetDataResponse response = new SetDataResponse();
-            ReplyHeader r = cnxn.SubmitRequest(h, request, response, wcb);
+            ReplyHeader r = await cnxn.SubmitRequest(h, request, response, wcb).ConfigureAwait(false);
             if (r.Err != 0)
             {
                 if (r.Err == (int)KeeperException.Code.NONODE)
@@ -629,7 +642,11 @@
         /// </summary>
         public Stat Exists(string path, bool watch)
         {
-            return Exists(path, watch ? watchManager.DefaultWatcher : null);
+            return ExistsAsync(path, watch).GetAwaiter().GetResult();
+        }
+        public Task<Stat> ExistsAsync(string path, bool watch)
+        {
+            return ExistsAsync(path, watch ? watchManager.DefaultWatcher : null);
         }
 
         /// <summary>
@@ -652,6 +669,10 @@
         /// </summary>
         public byte[] GetData(string path, IWatcher watcher, Stat stat)
         {
+            return GetDataAsync(path, watcher, stat).GetAwaiter().GetResult();
+        }
+        public async Task<byte[]> GetDataAsync(string path, IWatcher watcher, Stat stat)
+        {
             string clientPath = path;
             PathUtils.ValidatePath(clientPath);
 
@@ -668,7 +689,7 @@
             h.Type = (int)OpCode.GetData;
             GetDataRequest request = new GetDataRequest(serverPath, watcher != null);
             GetDataResponse response = new GetDataResponse();
-            ReplyHeader r = cnxn.SubmitRequest(h, request, response, wcb);
+            ReplyHeader r = await cnxn.SubmitRequest(h, request, response, wcb).ConfigureAwait(false);
             if (r.Err != 0)
             {
                 throw KeeperException.Create((KeeperException.Code)Enum.ToObject(typeof(KeeperException.Code), r.Err), clientPath);
@@ -699,7 +720,11 @@
         /// </summary>
         public byte[] GetData(string path, bool watch, Stat stat)
         {
-            return GetData(path, watch ? watchManager.DefaultWatcher : null, stat);
+            return GetDataAsync(path, watch, stat).GetAwaiter().GetResult();
+        }
+        public Task<byte[]> GetDataAsync(string path, bool watch, Stat stat)
+        {
+            return GetDataAsync(path, watch ? watchManager.DefaultWatcher : null, stat);
         }
 
         /// <summary>
@@ -731,6 +756,10 @@
         /// </summary>
         public Stat SetData(string path, byte[] data, int version)
         {
+            return SetDataAsync(path, data, version).GetAwaiter().GetResult();
+        }
+        public async Task<Stat> SetDataAsync(string path, byte[] data, int version)
+        {
             string clientPath = path;
             PathUtils.ValidatePath(clientPath);
 
@@ -740,7 +769,7 @@
             h.Type = (int)OpCode.SetData;
             SetDataRequest request = new SetDataRequest(serverPath,data,version);
             SetDataResponse response = new SetDataResponse();
-            ReplyHeader r = cnxn.SubmitRequest(h, request, response, null);
+            ReplyHeader r = await cnxn.SubmitRequest(h, request, response, null).ConfigureAwait(false);
             if (r.Err != 0)
             {
                 throw KeeperException.Create((KeeperException.Code)Enum.ToObject(typeof(KeeperException.Code), r.Err), clientPath);
@@ -764,6 +793,10 @@
         /// </summary>
         public IEnumerable<ACL> GetACL(string path, Stat stat)
         {
+            return GetACLAsync(path, stat).GetAwaiter().GetResult();
+        }
+        public async Task<IEnumerable<ACL>> GetACLAsync(string path, Stat stat)
+        {
             string clientPath = path;
             PathUtils.ValidatePath(clientPath);
 
@@ -773,7 +806,7 @@
             h.Type = (int)OpCode.GetACL;
             GetACLRequest request = new GetACLRequest(serverPath);
             GetACLResponse response = new GetACLResponse();
-            ReplyHeader r = cnxn.SubmitRequest(h, request, response, null);
+            ReplyHeader r = await cnxn.SubmitRequest(h, request, response, null).ConfigureAwait(false);
             if (r.Err != 0)
             {
                 throw KeeperException.Create((KeeperException.Code)Enum.ToObject(typeof(KeeperException.Code), r.Err), clientPath);
@@ -803,6 +836,10 @@
         /// </summary>
         public Stat SetACL(string path, IEnumerable<ACL> acl, int version)
         {
+            return SetACLAsync(path, acl, version).GetAwaiter().GetResult();
+        }
+        public async Task<Stat> SetACLAsync(string path, IEnumerable<ACL> acl, int version)
+        {
             string clientPath = path;
             PathUtils.ValidatePath(clientPath);
             if (acl != null && acl.Count() == 0)
@@ -816,7 +853,7 @@
             h.Type = (int)OpCode.SetACL;
             SetACLRequest request = new SetACLRequest(serverPath,acl,version);
             SetACLResponse response = new SetACLResponse();
-            ReplyHeader r = cnxn.SubmitRequest(h, request, response, null);
+            ReplyHeader r = await cnxn.SubmitRequest(h, request, response, null).ConfigureAwait(false);
             if (r.Err != 0)
             {
                 throw KeeperException.Create((KeeperException.Code)Enum.ToObject(typeof(KeeperException.Code), r.Err), clientPath);
@@ -846,6 +883,10 @@
         /// </summary>
         public IEnumerable<string> GetChildren(string path, IWatcher watcher)
         {
+            return GetChildrenAsync(path,watcher).GetAwaiter().GetResult();
+        }
+        public async Task<IEnumerable<string>> GetChildrenAsync(string path, IWatcher watcher)
+        {
             string clientPath = path;
             PathUtils.ValidatePath(clientPath);
 
@@ -862,7 +903,7 @@
             h.Type = (int)OpCode.GetChildren2;
             GetChildren2Request request = new GetChildren2Request(serverPath, watcher != null);
             GetChildren2Response response = new GetChildren2Response();
-            ReplyHeader r = cnxn.SubmitRequest(h, request, response, wcb);
+            ReplyHeader r = await cnxn.SubmitRequest(h, request, response, wcb).ConfigureAwait(false);
             if (r.Err != 0)
             {
                 throw KeeperException.Create((KeeperException.Code)Enum.ToObject(typeof(KeeperException.Code), r.Err), clientPath);
@@ -870,9 +911,14 @@
             return response.Children;
         }
 
+
         public IEnumerable<string> GetChildren(string path, bool watch)
         {
-            return GetChildren(path, watch ? watchManager.DefaultWatcher : null);
+            return GetChildrenAsync(path, watch).GetAwaiter().GetResult();
+        }
+        public Task<IEnumerable<string>> GetChildrenAsync(string path, bool watch)
+        {
+            return GetChildrenAsync(path, watch ? watchManager.DefaultWatcher : null);
         }
 
         /// <summary>
@@ -897,9 +943,13 @@
         /// @throws InterruptedException If the server transaction is interrupted.
         /// @throws KeeperException If the server signals an error with a non-zero error code.
         /// @throws IllegalArgumentException if an invalid path is specified
-         /// </summary>
-
+        /// </summary>
+       
         public IEnumerable<string> GetChildren(string path, IWatcher watcher, Stat stat)
+        {
+            return GetChildrenAsync(path, watcher, stat).GetAwaiter().GetResult();
+        }
+        public async Task<IEnumerable<string>> GetChildrenAsync(string path, IWatcher watcher, Stat stat)
         {
             string clientPath = path;
             PathUtils.ValidatePath(clientPath);
@@ -917,7 +967,7 @@
             h.Type = (int)OpCode.GetChildren2;
             GetChildren2Request request = new GetChildren2Request(serverPath, watcher != null);
             GetChildren2Response response = new GetChildren2Response();
-            ReplyHeader r = cnxn.SubmitRequest(h, request, response, wcb);
+            ReplyHeader r = await cnxn.SubmitRequest(h, request, response, wcb).ConfigureAwait(false);
             if (r.Err != 0)
             {
                 throw KeeperException.Create((KeeperException.Code)Enum.ToObject(typeof(KeeperException.Code), r.Err), clientPath);
@@ -954,7 +1004,11 @@
         /// </summary>
         public IEnumerable<string> GetChildren(string path, bool watch, Stat stat)
         {
-            return GetChildren(path, watch ? watchManager.DefaultWatcher : null, stat);
+            return GetChildrenAsync(path, watch, stat).GetAwaiter().GetResult();
+        }
+        public Task<IEnumerable<string>> GetChildrenAsync(string path, bool watch, Stat stat)
+        {
+            return GetChildrenAsync(path, watch ? watchManager.DefaultWatcher : null, stat);
         }
 
         /// <summary>

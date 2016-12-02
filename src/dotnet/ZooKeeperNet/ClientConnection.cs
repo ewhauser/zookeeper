@@ -16,6 +16,8 @@
  *
  */
 
+using System.Threading.Tasks;
+
 namespace ZooKeeperNet
 {
     using System;
@@ -33,7 +35,7 @@ namespace ZooKeeperNet
     {
         private static readonly ILog LOG = LogManager.GetLogger(typeof(ClientConnection));
 
-        private static readonly TimeSpan DefaultConnectTimeout = TimeSpan.FromMilliseconds(500);        
+        private static readonly TimeSpan DefaultConnectTimeout = TimeSpan.FromMilliseconds(500);    
         private static bool disableAutoWatchReset = false;
         private static int maximumPacketLength = 1024 * 1024 * 4;
         private static int maximumSpin = 30;
@@ -342,14 +344,17 @@ namespace ZooKeeperNet
             QueuePacket(new RequestHeader(-4, (int)OpCode.Auth), null, new AuthPacket(0, scheme, auth), null, null, null, null, null, null);
         }
 
-        public ReplyHeader SubmitRequest(RequestHeader h, IRecord request, IRecord response, ZooKeeper.WatchRegistration watchRegistration)
+        public async Task<ReplyHeader> SubmitRequest(RequestHeader h, IRecord request, IRecord response, ZooKeeper.WatchRegistration watchRegistration)
         {
             ReplyHeader r = new ReplyHeader();
             Packet p = QueuePacket(h, r, request, response, null, null, watchRegistration, null, null);
-            
-            if (!p.WaitUntilFinishedSlim(SessionTimeout))
+
+            Task timeoutTask = Task.Delay(SessionTimeout);
+            if (timeoutTask == await Task.WhenAny(timeoutTask, p.PacketTask).ConfigureAwait(false))
             {
-                throw new TimeoutException(new StringBuilder("The request ").Append(request).Append(" timed out while waiting for a response from the server.").ToString());
+                throw new TimeoutException(new StringBuilder("The request ").Append(request)
+                        .Append(" timed out while waiting for a response from the server.")
+                        .ToString());
             }
             return r;
         }
@@ -372,7 +377,7 @@ namespace ZooKeeperNet
 
                 try
                 {
-                    SubmitRequest(new RequestHeader { Type = (int)OpCode.CloseSession }, null, null, null);
+                    SubmitRequest(new RequestHeader { Type = (int)OpCode.CloseSession }, null, null, null).GetAwaiter().GetResult();
                     SpinWait spin = new SpinWait();
                     DateTime timeoutAt = DateTime.UtcNow.Add(SessionTimeout);
                     while (!producer.IsConnectionClosedByServer)

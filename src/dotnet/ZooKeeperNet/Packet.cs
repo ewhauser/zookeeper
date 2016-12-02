@@ -21,7 +21,7 @@ namespace ZooKeeperNet
 {
     using System.IO;
     using System.Text;
-    using System.Threading;
+    using System.Threading.Tasks;
     using log4net;
     using Org.Apache.Jute;
     using Org.Apache.Zookeeper.Proto;
@@ -89,18 +89,15 @@ namespace ZooKeeperNet
         }
 
 
-        private readonly ManualResetEventSlim mreslim = new ManualResetEventSlim(false);
-        public bool WaitUntilFinishedSlim(TimeSpan timeout)
+        private readonly TaskCompletionSource<object> packetCompletion = new TaskCompletionSource<object>();
+        internal Task PacketTask
         {
-            return mreslim.Wait(timeout);
+            get { return packetCompletion.Task; }
         }
-
+        
         internal bool Finished
         {
-            set
-            {
-                mreslim.Set();
-            }
+            set { packetCompletion.TrySetResult(null); }
         }
 
         public override string ToString()
