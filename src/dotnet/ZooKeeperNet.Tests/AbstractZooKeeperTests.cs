@@ -15,18 +15,24 @@
  *  limitations under the License.
  *
  */
+
+using System.IO;
+using System.Xml;
+
 namespace ZooKeeperNet.Tests
 {
     using System;
     using System.Runtime.CompilerServices;
     using System.Threading;
-    using log4net.Config;
 
     public abstract class AbstractZooKeeperTests
     {
         static AbstractZooKeeperTests()
         {
-            XmlConfigurator.Configure();    
+            XmlDocument log4netConfig = new XmlDocument();
+            log4netConfig.Load(File.OpenRead("log4net.xml"));
+            var repository = log4net.LogManager.CreateRepository("tests");
+            log4net.Config.XmlConfigurator.Configure(repository, log4netConfig["log4net"]);
         }
 
         protected static readonly TimeSpan CONNECTION_TIMEOUT = new TimeSpan(0, 0, 0, 0, 10000);

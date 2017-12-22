@@ -33,7 +33,8 @@ namespace ZooKeeperNet.Tests
         [Test, Explicit]
         public void ReconnectsWhenDisconnected()
         {
-            using (CancellationTokenSource token = new CancellationTokenSource())
+            using (
+                CancellationTokenSource token = new CancellationTokenSource())
             {
                 Thread thread = new Thread(Run)
                     {
