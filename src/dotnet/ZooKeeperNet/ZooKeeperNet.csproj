@@ -5,6 +5,8 @@
     <Description>ZooKeeper Client for .NET http://zookeeper.apache.org</Description>
     <Copyright>Copyright 2007-2012 ewhauser, omwok. - All rights reserved.</Copyright>
     <Version>3.4.6.3</Version>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>..\ZooKeeperKey.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
 
   <ItemGroup>
