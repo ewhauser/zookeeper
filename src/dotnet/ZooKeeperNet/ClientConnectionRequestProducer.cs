@@ -1,10 +1,10 @@
 ﻿using System;
-using System.Threading;
 using System.Collections.Concurrent;
 using ZooKeeperNet.IO;
 
 namespace ZooKeeperNet
 {
+    using System.Collections.Generic;
     using System.IO;
     using System.Linq;
     using System.Net;
@@ -14,7 +14,6 @@ namespace ZooKeeperNet
     using log4net;
     using Org.Apache.Jute;
     using Org.Apache.Zookeeper.Proto;
-    using System.Collections.Generic;
 
     public class ClientConnectionRequestProducer : IStartable, IDisposable
     {
@@ -94,7 +93,7 @@ namespace ZooKeeperNet
 
             if (!zooKeeper.State.IsAlive() || closing || Interlocked.CompareExchange(ref isDisposed, 0, 0) == 1)
             {
-                if(LOG.IsDebugEnabled)
+                if (LOG.IsDebugEnabled)
                     LOG.DebugFormat("Connection closing. Sending ConLossPacket. IsAlive: {0}, closing: {1}", zooKeeper.State.IsAlive(), closing);
                 ConLossPacket(p);
             }
@@ -111,7 +110,7 @@ namespace ZooKeeperNet
         private void addPacketFirst(Packet p)
         {
             outgoingQueue.AddFirst(p);
-            
+
         }
         private void addPacketLast(Packet p)
         {
@@ -136,7 +135,7 @@ namespace ZooKeeperNet
                     if ((client == null || client.Client == null) || (!client.Connected || zooKeeper.State == ZooKeeper.States.NOT_CONNECTED))
                     {
                         // don't re-establish connection if we are closing
-                        if(conn.IsClosed || closing)
+                        if (conn.IsClosed || closing)
                             break;
 
                         // Clean up the previous TCP connection if needed, and
@@ -160,7 +159,7 @@ namespace ZooKeeperNet
                     packet = null;
                     lock (outgoingQueue)
                     {
-                        if(!outgoingQueue.IsEmpty())
+                        if (!outgoingQueue.IsEmpty())
                         {
                             packet = outgoingQueue.First();
                             outgoingQueue.RemoveFirst();
@@ -210,25 +209,25 @@ namespace ZooKeeperNet
                             ConLossPacket(packet);
                         // clean up any queued packet
                         Cleanup();
-                        if(zooKeeper.State.IsAlive())
+                        if (zooKeeper.State.IsAlive())
                         {
                             conn.consumer.QueueEvent(new WatchedEvent(KeeperState.Disconnected, EventType.None, null));
                         }
-                        else if(zooKeeper.State.IsAuthFailed())
+                        else if (zooKeeper.State.IsAuthFailed())
                         {
                             conn.consumer.QueueEvent(new WatchedEvent(KeeperState.AuthFailed, EventType.None, null));
                         }
                     }
                 }
             }
-            
+
             // safe-net to ensure everything is clean up properly
             Cleanup();
 
             // i don't think this is necessary, when we reached this block ....the state is surely not alive
             if (zooKeeper.State.IsAlive())
                 conn.consumer.QueueEvent(new WatchedEvent(KeeperState.Disconnected, EventType.None, null));
-                
+
             if (LOG.IsDebugEnabled)
                 LOG.Debug("SendThread exitedloop.");
         }
@@ -308,8 +307,8 @@ namespace ZooKeeperNet
                 LOG.InfoFormat("Opening socket connection to server {0}", zkEndpoints.CurrentEndPoint.ServerAddress);
                 tempClient = new TcpClient();
                 tempClient.LingerState = new LingerOption(false, 0);
-                tempClient.NoDelay = true; 
-            
+                tempClient.NoDelay = true;
+
                 Interlocked.Exchange(ref initialized, 0);
                 IsConnectionClosedByServer = false;
 
@@ -354,7 +353,7 @@ namespace ZooKeeperNet
                     wh.Close();
                 }
             }
-            while(zkEndpoints.IsNextEndPointAvailable);
+            while (zkEndpoints.IsNextEndPointAvailable);
 
             if (tempClient == null)
             {
@@ -413,18 +412,18 @@ namespace ZooKeeperNet
                 if (len == 0) //server closed the connection...
                 {
                     LOG.Debug("TcpClient connection lost.");
-                    if(zooKeeper.State == ZooKeeper.States.CONNECTING)
+                    if (zooKeeper.State == ZooKeeper.States.CONNECTING)
                         zkEndpoints.CurrentEndPoint.SetAsFailure();
 
                     zooKeeper.State = ZooKeeper.States.NOT_CONNECTED;
                     IsConnectionClosedByServer = true;
                     return;
                 }
-                
+
                 recvCount++;
 
                 if (bData == incomingBuffer) // if bData is incoming then surely it is a length information
-                {                    
+                {
                     currentLen = 0;
                     juteBuffer = null;
                     // get the length information from the stream
@@ -434,7 +433,7 @@ namespace ZooKeeperNet
                 }
                 else // not an incoming buffer then it is surely a zookeeper process information
                 {
-                    if (Interlocked.CompareExchange(ref initialized,1,0) == 0)
+                    if (Interlocked.CompareExchange(ref initialized, 1, 0) == 0)
                     {
                         // haven't been initialized so read the authentication negotiation result
                         ReadConnectResult(bData);
@@ -500,9 +499,9 @@ namespace ZooKeeperNet
                             DoSend(p);
 
                             // Synchronously wait for the response.
-                            if (!p.WaitUntilFinishedSlim(conn.ConnectionTimeout))
+                            if (!p.Task.Wait(conn.ConnectionTimeout))
                             {
-                                throw new TimeoutException(new StringBuilder("The request ").Append(request).Append(" timed out while waiting for a response from the server.").ToString());
+                                throw new TimeoutException($"The request {request} timed out while waiting for a response from the server.");
                             }
 
                             if (r.Err != 0)
@@ -563,7 +562,7 @@ namespace ZooKeeperNet
 
                 foreach (ClientConnection.AuthData id in conn.authInfo)
                     addPacketFirst(
-                        new Packet(new RequestHeader(-4, (int) OpCode.Auth), null, new AuthPacket(0, id.Scheme, id.GetData()), null, null, null, null, null));
+                        new Packet(new RequestHeader(-4, (int)OpCode.Auth), null, new AuthPacket(0, id.Scheme, id.GetData()), null, null, null, null, null));
 
                 // The ConnectRequest packet has already been sent in the SASL case.
                 if (conPacket != null)
@@ -579,7 +578,7 @@ namespace ZooKeeperNet
                 packetAre.Set();
 
             if (LOG.IsDebugEnabled)
-                LOG.DebugFormat("Session establishment request sent on {0}",client.Client.RemoteEndPoint);
+                LOG.DebugFormat("Session establishment request sent on {0}", client.Client.RemoteEndPoint);
         }
 
         private void SendPing()
@@ -588,7 +587,7 @@ namespace ZooKeeperNet
             RequestHeader h = new RequestHeader(-2, (int)OpCode.Ping);
             conn.QueuePacket(h, null, null, null, null, null, null, null, null);
         }
-        
+
         /// <summary>
         /// send packet to server        
         /// there's posibility when server closed the socket and client try to send some packet, when this happen it will throw exception
@@ -731,7 +730,7 @@ namespace ZooKeeperNet
                     throw new IOException(new StringBuilder("Nothing in the queue, but got ").Append(replyHdr.Xid).ToString());
                 }
             }
-        }        
+        }
 
         private void ConLossPacket(Packet p)
         {
@@ -753,7 +752,7 @@ namespace ZooKeeperNet
             if (p.watchRegistration != null)
                 p.watchRegistration.Register(p.replyHeader.Err);
 
-            p.Finished = true;
+            p.SetFinished();
         }
 
         private IEnumerable<string> prependChroot(IEnumerable<string> paths)
@@ -790,13 +789,13 @@ namespace ZooKeeperNet
                     if (requestThread.IsAlive)
                     {
                         requestThread.Join();
-                    } 
+                    }
                 }
                 catch (Exception ex)
                 {
                     LOG.WarnFormat("Error disposing {0} : {1}", this.GetType().FullName, ex.Message);
                 }
-                
+
                 incomingBuffer = juteBuffer = null;
             }
         }

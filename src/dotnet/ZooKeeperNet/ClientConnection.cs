@@ -25,6 +25,7 @@ namespace ZooKeeperNet
     using System.Net.Sockets;
     using System.Text;
     using System.Threading;
+    using System.Threading.Tasks;
     using log4net;
     using Org.Apache.Jute;
     using Org.Apache.Zookeeper.Proto;
@@ -33,7 +34,7 @@ namespace ZooKeeperNet
     {
         private static readonly ILog LOG = LogManager.GetLogger(typeof(ClientConnection));
 
-        private static readonly TimeSpan DefaultConnectTimeout = TimeSpan.FromMilliseconds(500);        
+        private static readonly TimeSpan DefaultConnectTimeout = TimeSpan.FromMilliseconds(500);
         private static bool disableAutoWatchReset = false;
         private static int maximumPacketLength = 1024 * 1024 * 4;
         private static int maximumSpin = 30;
@@ -73,7 +74,7 @@ namespace ZooKeeperNet
                 }
 
                 maximumPacketLength = value;
-                
+
             }
         }
 
@@ -111,7 +112,7 @@ namespace ZooKeeperNet
         internal readonly List<IPEndPoint> serverAddrs = new List<IPEndPoint>();
         internal readonly List<AuthData> authInfo = new List<AuthData>();
         internal TimeSpan readTimeout;
-        
+
         private int isClosed;
         public bool IsClosed
         {
@@ -284,7 +285,7 @@ namespace ZooKeeperNet
                     nonRandomizedServerAddrs.Add(new IPEndPoint(ip, port));
                 }
             }
-            IEnumerable<IPEndPoint> randomizedServerAddrs 
+            IEnumerable<IPEndPoint> randomizedServerAddrs
                 = nonRandomizedServerAddrs.OrderBy(s => Guid.NewGuid()); //Random order the servers
 
             serverAddrs.AddRange(randomizedServerAddrs);
@@ -350,7 +351,7 @@ namespace ZooKeeperNet
         /// <value>The session password.</value>
         public byte[] SessionPassword { get; internal set; }
 
-        
+
         /// <summary>
         /// Gets or sets the session id.
         /// </summary>
@@ -381,11 +382,30 @@ namespace ZooKeeperNet
         {
             ReplyHeader r = new ReplyHeader();
             Packet p = QueuePacket(h, r, request, response, null, null, watchRegistration, null, null);
-            
-            if (!p.WaitUntilFinishedSlim(SessionTimeout))
+
+            if (!p.Task.Wait(SessionTimeout))
             {
-                throw new TimeoutException(new StringBuilder("The request ").Append(request).Append(" timed out while waiting for a response from the server.").ToString());
+                throw new TimeoutException($"The request {request} timed out while waiting for a response from the server.");
             }
+            return r;
+        }
+
+        public async Task<ReplyHeader> SubmitRequestAsync(RequestHeader h, IRecord request, IRecord response, ZooKeeper.WatchRegistration watchRegistration)
+        {
+            ReplyHeader r = new ReplyHeader();
+            Packet p = QueuePacket(h, r, request, response, null, null, watchRegistration, null, null);
+
+            CancellationTokenSource cts = new CancellationTokenSource();
+
+            if (await Task.WhenAny(p.Task, Task.Delay(SessionTimeout, cts.Token)).ConfigureAwait(false) != p.Task)
+            {
+                throw new TimeoutException($"The request {request} timed out while waiting for a response from the server.");
+            }
+
+            cts.Cancel(); // we haven't timed out - cancel the timeout task
+
+            await p.Task; // forces exceptions to be thrown correctly
+
             return r;
         }
 
@@ -399,7 +419,7 @@ namespace ZooKeeperNet
         /// </summary>
         private void InternalDispose()
         {
-            if(Interlocked.CompareExchange(ref isClosed,1,0) == 0)
+            if (Interlocked.CompareExchange(ref isClosed, 1, 0) == 0)
             {
                 //closing = true;
                 if (LOG.IsDebugEnabled)
@@ -438,7 +458,7 @@ namespace ZooKeeperNet
                     {
                         producer.Dispose();
                     }
-                    
+
                     if (null != consumer)
                     {
                         consumer.Dispose();

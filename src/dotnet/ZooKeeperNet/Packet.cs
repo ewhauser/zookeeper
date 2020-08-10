@@ -19,13 +19,13 @@ using ZooKeeperNet.IO;
 
 namespace ZooKeeperNet
 {
+    using System;
     using System.IO;
     using System.Text;
-    using System.Threading;
+    using System.Threading.Tasks;
     using log4net;
     using Org.Apache.Jute;
     using Org.Apache.Zookeeper.Proto;
-    using System;
 
     public class Packet
     {
@@ -55,7 +55,7 @@ namespace ZooKeeperNet
             if (data != null)
             {
                 this.data = data;
-            } 
+            }
             else
             {
                 try
@@ -65,14 +65,14 @@ namespace ZooKeeperNet
                     {
                         BinaryOutputArchive boa = BinaryOutputArchive.getArchive(writer);
                         boa.WriteInt(-1, "len"); // We'll fill this in later
-                        if(header != null)
+                        if (header != null)
                         {
                             header.Serialize(boa, "header");
                         }
                         if (request != null)
                         {
                             request.Serialize(boa, "request");
-                        }                        
+                        }
                         ms.Position = 0;
                         int len = Convert.ToInt32(ms.Length); // now we have the real length
                         writer.Write(len - 4); // update the length info
@@ -88,18 +88,12 @@ namespace ZooKeeperNet
         }
 
 
-        private readonly ManualResetEventSlim mreslim = new ManualResetEventSlim(false);
-        public bool WaitUntilFinishedSlim(TimeSpan timeout)
-        {
-            return mreslim.Wait(timeout);
-        }
+        private readonly TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Task => tcs.Task;
 
-        internal bool Finished
+        internal void SetFinished()
         {
-            set
-            {
-                mreslim.Set();
-            }
+            tcs.TrySetResult(true);
         }
 
         public override string ToString()
@@ -108,7 +102,7 @@ namespace ZooKeeperNet
 
             sb.Append("  clientPath:").Append(clientPath);
             sb.Append("  serverPath:").Append(serverPath);
-            sb.Append("    finished:").Append(mreslim.IsSet);
+            sb.Append("    finished:").Append(Task.IsCompleted);
             sb.Append("     header::").Append(header);
             sb.Append("replyHeader::").Append(replyHeader);
             sb.Append("    request::").Append(request);

@@ -18,6 +18,7 @@
 namespace ZooKeeperNet
 {
     using System;
+    using System.Threading.Tasks;
     using Org.Apache.Jute;
     using Org.Apache.Zookeeper.Proto;
 
@@ -63,6 +64,16 @@ namespace ZooKeeperNet
         /// <param name="watchRegistration">The watch registration.</param>
         /// <returns></returns>
         ReplyHeader SubmitRequest(RequestHeader h, IRecord request, IRecord response, ZooKeeper.WatchRegistration watchRegistration);
+
+        /// <summary>
+        /// Submits the request asynchronously.
+        /// </summary>
+        /// <param name="h">The request header.</param>
+        /// <param name="request">The request.</param>
+        /// <param name="response">The response.</param>
+        /// <param name="watchRegistration">The watch registration.</param>
+        /// <returns></returns>
+        Task<ReplyHeader> SubmitRequestAsync(RequestHeader h, IRecord request, IRecord response, ZooKeeper.WatchRegistration watchRegistration);
 
         /// <summary>
         /// Queues the packet.
