@@ -43,6 +43,12 @@ namespace ZooKeeperNet.Tests
             return new ZooKeeper("127.0.0.1:2181", new TimeSpan(0, 0, 0, 10000), watcher);
         }
 
+        protected virtual ZooKeeper CreateClient(TimeSpan sessionTimeout)
+        {
+            CountdownWatcher watcher = new CountdownWatcher();
+            return new ZooKeeper("127.0.0.1:2181", sessionTimeout, watcher);
+        }
+
         protected virtual ZooKeeper CreateClient(string node)
         {
             CountdownWatcher watcher = new CountdownWatcher();
